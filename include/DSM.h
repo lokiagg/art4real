@@ -149,7 +149,10 @@ public:
     static uint64_t count = 0;
     return keeper->sum(std::string("sum-") + std::to_string(count++), value);
   }
-
+  uint64_t sum_MN(uint64_t value ,int mn_id) {
+    static uint64_t count = 0;
+    return keeper->sum(std::string("mn")+std::to_string(mn_id)+std::string("sum-") + std::to_string(count++), value);
+  }
   // Memcached operations for sync
   size_t Put(uint64_t key, const void *value, size_t count) {
 
@@ -209,6 +212,7 @@ public:
   void free(const GlobalAddress& addr, int size);
 
   void alloc_nodes(int node_num, GlobalAddress *addrs, bool align = true);
+  void alloc_bnodes(int node_num, GlobalAddress *addrs, bool align = true);
 
   void rpc_call_dir(const RawMessage &m, uint16_t node_id,
                     uint16_t dir_id = 0) {
@@ -253,12 +257,20 @@ inline GlobalAddress DSM::alloc(size_t size, bool align) {
     // retry
     addr = local_allocator.malloc(size, need_chunk, align);
   }
+  
+
+
   return addr;
 }
 
 inline void DSM::alloc_nodes(int node_num, GlobalAddress *addrs, bool align) {
   for (int i = 0; i < node_num; ++ i) {
     addrs[i] = alloc(define::allocationPageSize, align);
+  }
+}
+inline void DSM::alloc_bnodes(int node_num, GlobalAddress *addrs, bool align) {
+  for (int i = 0; i < node_num; ++ i) {
+    addrs[i] = alloc(define::allocationBufferSize, align);
   }
 }
 

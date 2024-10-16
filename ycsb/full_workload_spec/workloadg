@@ -23,19 +23,19 @@
 #   Request distribution: zipfian
 
 recordcount=60000000
-operationcount=120000000
+operationcount=60000000
 fieldcount=1
 fieldlength=1
 # insertorder=ordered
-# insertstart=1
 
 workload=com.yahoo.ycsb.workloads.CoreWorkload
 
 readallfields=true
 
-readproportion=0
-updateproportion=0
+readproportion=0.2
+updateproportion=0.8
 scanproportion=0
-insertproportion=1
+insertproportion=0
 
 requestdistribution=zipfian
+

@@ -6,7 +6,7 @@ project(SMART)
 
 #Compiler options
 # set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wsign-compare -g")   # -DNDEBUG
-set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wsign-compare -O3")  # -O3
+set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wsign-compare -O3 -g")  # -O3
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++17")
 
 #Link Options
@@ -14,6 +14,7 @@ set(LINKS_FLAGS "-lcityhash -lboost_system -lboost_coroutine -lpthread -libverbs
 
 #Env Options
 option (STATIC_MN_IP "Use static MNs according the IPs of the nodes" OFF)
+option (ENABLE_CORO "Turn on the coroutine" ON)
 option (ENABLE_CACHE "Turn on the computing-side cache" ON)
 option (LONG_TEST_EPOCH "Use big epoch num and long epoch duration" OFF)
 option (SHORT_TEST_EPOCH "Use small epoch num and short epoch duration" OFF)
@@ -25,10 +26,17 @@ else()
     remove_definitions(-DSTATIC_ID_FROM_IP)
 endif()
 
+#if(ENABLE_CORO)
+#    add_definitions(-DUSE_CORO)
+#else()
+    remove_definitions(-DUSE_CORO)
+#endif()
+
+
 if(ENABLE_CACHE)
     add_definitions(-DTREE_ENABLE_CACHE)
 else()
-    remove_definitions(-DTREE_ENABLE_CACHE)
+    add_definitions(-DTREE_ENABLE_CACHE)
 endif()
 
 if(LONG_TEST_EPOCH)

@@ -16,7 +16,6 @@ thread_local LocalAllocator DSM::local_allocators[MEMORY_NODE_NUM][NR_DIRECTORY]
 thread_local RdmaBuffer DSM::rbuf[MAX_CORO_NUM];
 thread_local uint64_t DSM::thread_tag = 0;
 
-
 DSM *DSM::getInstance(const DSMConfig &conf) {
   static DSM *dsm = nullptr;
   static WRLock lock;
@@ -143,6 +142,7 @@ void DSM::read(char *buffer, GlobalAddress gaddr, size_t size, bool signal,
              ctx->coro_id);
     (*ctx->yield)(*ctx->master);
   }
+//    printf("read size : %" PRIu64 " \n",size);
 }
 
 void DSM::read_sync(char *buffer, GlobalAddress gaddr, size_t size,
@@ -169,6 +169,7 @@ void DSM::write(const char *buffer, GlobalAddress gaddr, size_t size,
               ctx->coro_id);
     (*ctx->yield)(*ctx->master);
   }
+//  printf("write size : %" PRIu64 " \n",size);
 }
 
 void DSM::write_sync(const char *buffer, GlobalAddress gaddr, size_t size,
@@ -222,6 +223,7 @@ void DSM::read_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx) {
 void DSM::read_batches_sync(const std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
   RdmaOpRegion each_rs[MAX_MACHINE][kReadOroMax];
   int cnt[MAX_MACHINE];
+  memset(each_rs,0,sizeof(RdmaOpRegion)*MAX_MACHINE*kReadOroMax);
 
   int i = 0;
   int k = rs.size();
@@ -280,6 +282,7 @@ void DSM::write_batches_sync(RdmaOpRegion *rs, int k, CoroContext *ctx, int coro
   int cnt[MAX_MACHINE];
 
   std::fill(cnt, cnt + MAX_MACHINE, 0);
+  memset(each_rs,0,MAX_MACHINE*kWriteOroMax*sizeof(RdmaOpRegion));
   for (int i = 0; i < k; ++ i) {
     int node_id = GlobalAddress{rs[i].dest}.nodeID;
     each_rs[node_id][cnt[node_id] ++] = rs[i];
@@ -618,15 +621,14 @@ void DSM::cas_mask(GlobalAddress gaddr, uint64_t equal, uint64_t val,
 
 bool DSM::cas_mask_sync(GlobalAddress gaddr, uint64_t equal, uint64_t val,
                         uint64_t *rdma_buffer, uint64_t mask, CoroContext *ctx) {
-
   cas_mask(gaddr, equal, val, rdma_buffer, mask, true, ctx);
 
   if (ctx == nullptr) {
     ibv_wc wc;
     pollWithCQ(iCon->cq, 1, &wc);
   }
-  return (equal & mask) == (*rdma_buffer & mask);
 
+  return (equal & mask) == (*rdma_buffer & mask);
 }
 
 void DSM::faa_boundary(GlobalAddress gaddr, uint64_t add_val,

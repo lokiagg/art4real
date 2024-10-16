@@ -31,7 +31,6 @@
 
 #define MAX_THREAD_REQUEST 10000000
 #define LOAD_HEARTBEAT 100000
-#define USE_CORO
 #define EPOCH_LAT_TEST
 #define LOADER_NUM 8
 
@@ -50,6 +49,24 @@ extern uint64_t read_node_repair[MAX_APP_THREAD];
 extern uint64_t try_read_node[MAX_APP_THREAD];
 extern uint64_t read_node_type[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
 extern uint64_t retry_cnt[MAX_APP_THREAD][MAX_FLAG_NUM];
+
+extern uint64_t MN_iops[MAX_APP_THREAD][MEMORY_NODE_NUM];
+extern uint64_t MN_datas[MAX_APP_THREAD][MEMORY_NODE_NUM];
+
+extern uint64_t retry_time[MAX_APP_THREAD];
+extern uint64_t insert_time[MAX_APP_THREAD];
+
+
+extern uint64_t insert_cnt[MAX_APP_THREAD];
+extern uint64_t internal_empty_entry[MAX_APP_THREAD];
+extern uint64_t internal_extend_empty_entry[MAX_APP_THREAD];
+extern uint64_t internal_header_split[MAX_APP_THREAD];
+extern uint64_t buffer_empty_entry[MAX_APP_THREAD];
+extern uint64_t buffer_header_split[MAX_APP_THREAD];
+extern uint64_t buffer_reconstruct[MAX_APP_THREAD];
+extern uint64_t in_place_update[MAX_APP_THREAD];
+
+
 
 int kThreadCount;
 int kNodeCount;
@@ -70,14 +87,14 @@ bool rm_write_conflict = false;
 
 
 std::thread th[MAX_APP_THREAD];
-uint64_t tp[MAX_APP_THREAD][MAX_CORO_NUM];
+uint64_t tp[MAX_APP_THREAD][MAX_CORO_NUM];   //全局变量 统计tp
 
 extern volatile bool need_stop;
 extern uint64_t latency[MAX_APP_THREAD][MAX_CORO_NUM][LATENCY_WINDOWS];
 uint64_t latency_th_all[LATENCY_WINDOWS];
 
 std::default_random_engine e;
-std::uniform_int_distribution<Value> randval(kValueMin, kValueMax);
+std::uniform_int_distribution<uint64_t> randval(kValueMin, kValueMax);
 
 Tree *tree;
 DSM *dsm;
@@ -116,7 +133,7 @@ public:
       }
     }
     tp[local_thread_id][coro_id]++;
-    req[cur].v = randval(e);  // make value different per-epoch
+    req[cur].v = int2value(randval(e));  // make value different per-epoch
     return req[cur];
   }
 
@@ -173,13 +190,18 @@ void thread_load(int id) {
     assert(false);
   }
   Key k;
+  Value v;
+  uint64_t int_v = randval(e);
+  v = int2value(int_v);
   int cnt = 0;
   if (!kIsStr) {  // int workloads
     uint64_t int_k;
+
     while (load_in >> op >> int_k) {
       k = int2key(int_k);
+
       assert(op == "INSERT");
-      tree->insert(k, randval(e), nullptr, 0, false, true);
+      tree->insert(k,v, nullptr, 0, false, true);
       if (++ cnt % LOAD_HEARTBEAT == 0) {
         printf("thread %lu: %d load entries loaded.\n", loader_id, cnt);
       }
@@ -194,7 +216,7 @@ void thread_load(int id) {
       tmp >> op >> str_k;
       k = str2key(str_k);
       assert(op == "INSERT");
-      tree->insert(k, randval(e), nullptr, 0, false, true);
+      tree->insert(k, v, nullptr, 0, false, true);
       if (++ cnt % LOAD_HEARTBEAT == 0) {
         printf("thread %lu: %d load entries loaded.\n", loader_id, cnt);
       }
@@ -301,7 +323,7 @@ void thread_run(int id) {
     ;
 
   // 3. start ycsb test
-  if (!kIsScan && kUseCoro) {
+  if (!kIsScan && kUseCoro) {   //在这里产生的就很慢？？？
     tree->run_coroutine(gen_func, work_func, kCoroCnt, req, req_num);
   }
   else {
@@ -310,7 +332,7 @@ void thread_run(int id) {
     auto gen = new RequsetGenBench(dsm, req, req_num, 0, 0);
     auto thread_id = dsm->getMyThreadID();
 
-    while (!need_stop) {
+    while (!need_stop) {     
       auto r = gen->next();
 
       timer.begin();
@@ -337,8 +359,16 @@ void parse_args(int argc, char *argv[]) {
   kCoroCnt = atoi(argv[3]);
   kIsStr = (std::string(argv[4]) == "email");
   kIsScan = (std::string(argv[5]) == "e");
-  ycsb_load_path = "../ycsb/workloads/load_" + std::string(argv[4]) + "_workload" + std::string(argv[5]);
-  ycsb_trans_path = "../ycsb/workloads/txn_" + std::string(argv[4]) + "_workload" + std::string(argv[5]);
+
+  std::string workload_dir;
+  std::ifstream workloads_dir_in("../workloads.conf");
+  if (!workloads_dir_in.is_open()) {
+    printf("Error opening workloads.conf\n");
+    assert(false);
+  }
+  workloads_dir_in >> workload_dir;
+  ycsb_load_path = workload_dir + "/load_" + std::string(argv[4]) + "_workload" + std::string(argv[5]);
+  ycsb_trans_path = workload_dir + "/txn_" + std::string(argv[4]) + "_workload" + std::string(argv[5]);
   if (argc == 7) {
     if(kIsScan) fix_range_size = atoi(argv[6]);
     else rm_write_conflict = (atoi(argv[6]) != 0);
@@ -404,10 +434,21 @@ int main(int argc, char *argv[]) {
   timespec s, e;
   uint64_t pre_tp = 0;
   int count = 0;
+    uint64_t MN_tp[MEMORY_NODE_NUM];
+  uint64_t MN_data[MEMORY_NODE_NUM];
+  memset(MN_tp, 0, sizeof(uint64_t) * MEMORY_NODE_NUM);
+  memset(MN_data, 0, sizeof(uint64_t) * MEMORY_NODE_NUM);
+  uint64_t u_r_t=0;
+  uint64_t u_t=0;
 
   clock_gettime(CLOCK_REALTIME, &s);
-  while(!need_stop) {
 
+  long microsec = s.tv_nsec / 1000;
+
+  printf("当前时间: %ld 秒 %ld 微秒\n", s.tv_sec, microsec);
+  while(!need_stop) {
+ //   if(count++ ==500 ) tree->clear_cache();
+//    count++;
     sleep(TIME_INTERVAL);
     clock_gettime(CLOCK_REALTIME, &e);
     int microseconds = (e.tv_sec - s.tv_sec) * 1000000 +
@@ -475,6 +516,62 @@ int main(int argc, char *argv[]) {
         all_retry_cnt[i] += retry_cnt[j][i];
       }
     }
+    uint64_t cas_retry_cnt=0;
+    cas_retry_cnt += all_retry_cnt[1]+all_retry_cnt[3]+all_retry_cnt[7];
+    uint64_t total_cnt=all_retry_cnt[0];
+
+     uint64_t MN_tps[MEMORY_NODE_NUM];
+    uint64_t MN_d[MEMORY_NODE_NUM];
+    memset(MN_tps, 0, sizeof(uint64_t) * MEMORY_NODE_NUM);
+    memset(MN_d, 0, sizeof(uint64_t) * MEMORY_NODE_NUM);
+    for(int i=0;i<MAX_APP_THREAD;++ i)
+      for(int j=0;j<MEMORY_NODE_NUM;j++)
+      {
+        MN_tps[j]+=MN_iops[i][j];
+        MN_d[j]+=MN_datas[i][j];
+      }
+    uint64_t MN_cap[MEMORY_NODE_NUM];
+    memset(MN_cap, 0, sizeof(uint64_t) * MEMORY_NODE_NUM);  
+    for(int j=0;j<MEMORY_NODE_NUM;j++)
+      {
+        MN_cap[j]=MN_tps[j]-MN_tp[j];
+      }  
+
+    uint64_t insert = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      insert += insert_cnt[i]; 
+    }
+    uint64_t internal_empty = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      internal_empty += internal_empty_entry[i]; 
+    }
+    uint64_t internal_extend_empty = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      internal_extend_empty += internal_extend_empty_entry[i]; 
+    }
+    uint64_t internal_header_split_cnt = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      internal_header_split_cnt += internal_header_split[i]; 
+    }
+    uint64_t buffer_empty = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      buffer_empty += buffer_empty_entry[i]; 
+    }
+    uint64_t buffer_header_split_cnt = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      buffer_header_split_cnt += buffer_header_split[i]; 
+    }
+    uint64_t buffer_reconstruct_cnt = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      buffer_reconstruct_cnt += buffer_reconstruct[i]; 
+    }
+    uint64_t in_place_update_cnt = 0;
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+      in_place_update_cnt += in_place_update[i]; 
+    }
+    
+
+    
     tree->clear_debug_info();
 
 #ifdef EPOCH_LAT_TEST
@@ -484,49 +581,84 @@ int main(int argc, char *argv[]) {
       memset(latency, 0, sizeof(uint64_t) * MAX_APP_THREAD * MAX_CORO_NUM * LATENCY_WINDOWS);
     }
 #endif
+printf("total %lu", all_retry_cnt[0]);
+      for (int i = 1; i < MAX_FLAG_NUM; ++ i) {
+        printf(",  retry%d %lu", i, all_retry_cnt[i]);
+      }
+      printf("\n");
 
-    if (dsm->getMyNodeID() == 1) {
+/*    if (dsm->getMyNodeID() == 1) {
       printf("total %lu", all_retry_cnt[0]);
       for (int i = 1; i < MAX_FLAG_NUM; ++ i) {
         printf(",  retry%d %lu", i, all_retry_cnt[i]);
       }
       printf("\n");
-    }
-
+   }
+*/ 
     double per_node_tp = cap * 1.0 / microseconds;
     uint64_t cluster_tp = dsm->sum((uint64_t)(per_node_tp * 1000));  // only node 0 return the sum
 
-    printf("%d, throughput %.4f\n", dsm->getMyNodeID(), per_node_tp);
+ 
 
-    if (dsm->getMyNodeID() == 0) {
-      printf("epoch %d passed!\n", count);
-      printf("cluster throughput %.3f Mops\n", cluster_tp / 1000.0);
-      printf("cache hit rate: %lf\n", hit * 1.0 / all);
-      printf("avg. lock/cas fail cnt: %lf\n", lock_fail_cnt * 1.0 / try_write_op_cnt);
-      printf("write combining rate: %lf\n", write_handover_cnt * 1.0 / try_write_op_cnt);
-      printf("read delegation rate: %lf\n", read_handover_cnt * 1.0 / try_read_op_cnt);
-      printf("read leaf retry rate: %lf\n", read_leaf_retry_cnt * 1.0 / try_read_leaf_cnt);
-      printf("read invalid leaf rate: %lf\n", leaf_cache_invalid_cnt * 1.0 / try_read_leaf_cnt);
-      printf("read node repair rate: %lf\n", read_node_repair_cnt * 1.0 / try_read_node_cnt);
-      printf("read invalid node rate: %lf\n", all_retry_cnt[INVALID_NODE] * 1.0 / try_read_node_cnt);
-      for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
-        printf("node_type%d %lu   ", i, read_node_type_cnt[i]);
-      }
-      printf("\n\n");
+    double per_MN_tp[MEMORY_NODE_NUM];
+    memset(per_MN_tp, 0, sizeof(double) * MEMORY_NODE_NUM);    
+    for(int j=0;j<MEMORY_NODE_NUM;j++)
+      {
+        per_MN_tp[j]=MN_cap[j]*1.0/microseconds;
+      }       
+
+    uint64_t insert_time_total=0;
+    uint64_t retry_time_total=0;
+    for(int i=0;i<MAX_APP_THREAD;i++)
+    {
+      insert_time_total+=insert_time[i];
+      retry_time_total+=retry_time[i];
     }
+//    printf("insert time: %" PRIu64",update retry time:%" PRIu64" \n",insert_time_total,retry_time_total);
+      
+//    printf("op cnt: %" PRIu64 ",cas retry cnt: %" PRIu64" \n",total_cnt,cas_retry_cnt);
+    printf("%d, throughput %.4f ,duration %d ,cache hit rate: %lf conflict time rate:%lf \n", dsm->getMyNodeID(), per_node_tp, microseconds, hit * 1.0 / all,(retry_time_total-u_r_t)*1.0/(insert_time_total-u_t));
+    u_t=insert_time_total;
+    u_r_t=retry_time_total;
+    uint64_t MN_cluster_tp[MEMORY_NODE_NUM];
+    memset(MN_cluster_tp,0,sizeof(uint64_t)*MEMORY_NODE_NUM);
+
+      for(int j=0;j<MEMORY_NODE_NUM;j++)
+     {
+      //printf("CN %d MN %d, throughput %.4f \n",dsm->getMyNodeID(), j, (MN_tps[j]-MN_tp[j])*1.0/microseconds);
+      uint64_t MN_cluster_tp=dsm->sum_MN((uint64_t)(per_MN_tp[j] * 1000),j);
+      if(dsm->getMyNodeID()==0) printf("MN %d all throughput %.3f \n",j,MN_cluster_tp/1000.0);
+     }
+    if (dsm->getMyNodeID() == 0)  printf("cluster throughput %.3f Mops\n", cluster_tp / 1000.0);
+    if (dsm->getMyNodeID() == 0)  printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64"",insert,internal_empty,internal_extend_empty,internal_header_split_cnt,buffer_empty,buffer_header_split_cnt,buffer_reconstruct_cnt,in_place_update_cnt);
+    for(int j=0;j<MEMORY_NODE_NUM;j++)
+      {
+        MN_tp[j]=MN_tps[j];
+        MN_data[j]=MN_d[j];
+      }
+
     if (count >= TEST_EPOCH) {
       need_stop = true;
     }
   }
+    uint64_t insert_time_total=0;
+    uint64_t retry_time_total=0;
+    for(int i=0;i<MAX_APP_THREAD;i++)
+    {
+      insert_time_total+=insert_time[i];
+      retry_time_total+=retry_time[i];
+    }
+//    printf("insert time: %" PRIu64"\n",insert_time_total);
+
 #ifndef EPOCH_LAT_TEST
-  save_latency(1);
+//  save_latency(1);
 #endif
-  printf("[END]\n");
   for (int i = 0; i < kThreadCount; i++) {
     th[i].join();
     printf("Thread %d joined.\n", i);
   }
   tree->statistics();
+  printf("[END]\n");
   dsm->barrier("fin");
 
   return 0;
