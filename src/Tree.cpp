@@ -1822,7 +1822,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   depth ++;
   int first_empty=0;
   bool first_empty_set = false;
-  int count_index[256][256];  //[][0] -> count  [1~] ->index
+  int count_index[256][257];  //[][0] -> count  [1~] ->index
   int leaf_cnt = 0;
   BufferEntry leaf_addrs[256][256];
   std::vector<RdmaOpRegion> rs;
@@ -1831,7 +1831,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
   GlobalAddress *bnode_addrs;
-  int bnodes_entry_index[256][257];
+  int bnodes_entry_index[256][256];
   // int first_empty_flag = 0;
   // int first_empty = -1;
   memset(count_index,0,256*256*sizeof(int));
