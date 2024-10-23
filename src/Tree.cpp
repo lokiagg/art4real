@@ -1845,16 +1845,13 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   //  if(count_index[(int)bnode.records[i].partial][0] > 1) printf("partial is %d \n",i);
     }
   }
-  for(int i =0;i<256;i++)
-  leaf_cnt += count_index[i][0];
 
-assert(leaf_cnt == 256);
-leaf_cnt = 0;
-
+  int l_cnt = 0;
   for(int i=0; i <256 ;i++)
-  {
+  { 
     if(count_index[i][0] >= 1)
     {
+      l_cnt =+ count_index[i][0];
       if(i == (int)get_partial(k,depth - 1)) leaf_flag =1;  //往下拿的时候有叶节点的 没有的话多生成一个新的缓冲节点
       new_bnode_num ++;
       leaf_cnt += count_index[i][0];
@@ -1882,7 +1879,7 @@ leaf_cnt = 0;
         }
       }
     }
-    // if(count_index[i][0]==256) break;
+     if(l_cnt==256) break;
   }
   //new_bnode_num ++; //异地写 多申请一个
 
