@@ -1830,7 +1830,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
   GlobalAddress *bnode_addrs;
-  int bnodes_entry_index[256][256];
+  int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
   memset(count_index,0,256*256*sizeof(int));
@@ -1844,8 +1844,6 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
       count_index[(int)bnode->records[i].partial][count_index[(int)bnode->records[i].partial][0]] = i;
   //  if(count_index[(int)bnode.records[i].partial][0] > 1) printf("partial is %d \n",i);
     }
-        assert(bnode->records[i] != BufferEntry::Null());
-    assert(bnode->records[i].val != 0);
   }
   for(int i =0;i<256;i++)
   leaf_cnt += count_index[i][0];
