@@ -60,7 +60,7 @@ uint64_t read_internal_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的
 uint64_t read_leaves_time[8][MAX_APP_THREAD]; 
 uint64_t write_time[MAX_APP_THREAD];
 uint64_t cas_time[MAX_APP_THREAD];
-uint64_t loop_time[]
+uint64_t loop_time[MAX_APP_THREAD];
 
 int depth_test[MAX_APP_THREAD];
 /*
