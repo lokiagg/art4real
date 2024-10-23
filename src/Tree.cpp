@@ -486,8 +486,8 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         }
 
       InternalBuffer old_buffer = *bp_node;
-      if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
-      {
+//      if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
+//      {
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
       
       read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);  
@@ -496,7 +496,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
       auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
       read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count(); 
       read_buffer_node_time_this += read_buffer_node_duration.count(); 
-      }
+//      }
 
    
 
