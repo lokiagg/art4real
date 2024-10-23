@@ -1825,7 +1825,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   bool first_empty_set = false;
   int count_index[256][257];  //[][0] -> count  [1~] ->index
   int leaf_cnt = 0;
-  BufferEntry leaf_addrs[256][256];
+  BufferEntry leaf_addrs[256][257];
   std::vector<RdmaOpRegion> rs;
   int new_bnode_num = 0;
   int leaf_flag = 0; //叶节点的部分键是否重复
