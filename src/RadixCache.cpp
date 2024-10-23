@@ -26,7 +26,7 @@ void RadixCache::add_to_cache(const Key& k, int node_type, const InternalPage* p
 InternalPage * page = const_cast<InternalPage*>(p_node);
 v = (uint64_t)page->hdr;
   auto depth = p_node->hdr.depth - 1;
-  if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
+  if (depth <= 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
 
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
   for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
