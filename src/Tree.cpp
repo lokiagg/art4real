@@ -1832,11 +1832,11 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
   GlobalAddress *bnode_addrs;
-  int bnodes_entry_index[256][256];
+  int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
-  memset(count_index,0,256*256*sizeof(int));
-  memset(bnodes_entry_index,0,256*256*sizeof(int));
+  memset(count_index,0,256*257*sizeof(int));
+  memset(bnodes_entry_index,0,256*257*sizeof(int));
 
   for(int i=0; i <256 ;i++)
   {
