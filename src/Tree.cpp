@@ -1879,7 +1879,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
         }
       }
     }
-    if(count_index[i][0]==256) break;
+    // if(count_index[i][0]==256) break;
   }
   //new_bnode_num ++; //异地写 多申请一个
 
