@@ -41,7 +41,7 @@ extern uint64_t cas_cnt[MAX_APP_THREAD];
 extern uint64_t write_time[MAX_APP_THREAD];
 extern uint64_t cas_time[MAX_APP_THREAD];
 
-extern int dept_test[MAX_APP_THREAD];
+extern int depth_test[MAX_APP_THREAD];
 
 extern uint64_t insert_time[8][MAX_APP_THREAD];  
 extern uint64_t insert_cnt[8][MAX_APP_THREAD];
