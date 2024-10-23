@@ -1847,6 +1847,11 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
         assert(bnode->records[i] != BufferEntry::Null());
     assert(bnode->records[i].val != 0);
   }
+  for(int i =0;i<256;i++)
+  leaf_cnt += count_index[i][0];
+
+assert(leaf_cnt == 256);
+leaf_cnt = 0;
 
   for(int i=0; i <256 ;i++)
   {
