@@ -477,6 +477,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           }
         }
         }
+      InternalBuffer old_buffer = *buffer_buffer;
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
       read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);  
       auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
