@@ -41,6 +41,7 @@ extern uint64_t cas_cnt[MAX_APP_THREAD];
 extern uint64_t write_time[MAX_APP_THREAD];
 extern uint64_t cas_time[MAX_APP_THREAD];
 
+extern int dept_test[MAX_APP_THREAD];
 
 extern uint64_t insert_time[8][MAX_APP_THREAD];  
 extern uint64_t insert_cnt[8][MAX_APP_THREAD];
@@ -492,6 +493,14 @@ printf("No cache\n");
       write_time_total+=write_time[i];
       cas_time_total+=cas_time[i];
     }
+    uint64_t highest_depth = 0;
+    for(int i =0;i<MAX_APP_THREAD;i++)
+    {
+      if(depth_test[i] > highest_depth )
+      {
+        highest_depth = depth_test[i];
+      }
+    }
 
     tree->clear_debug_info();
 
@@ -542,6 +551,7 @@ printf("No cache\n");
       printf("read internal time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_internal_total_time[0],read_internal_total_time[1],read_internal_total_time[2],read_internal_total_time[3],read_internal_total_time[4],read_internal_total_time[5],read_internal_total_time[6],read_internal_total_time[7]);
       printf("read leaves time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_leaves_total_time[0],read_leaves_total_time[1],read_leaves_total_time[2],read_leaves_total_time[3],read_leaves_total_time[4],read_leaves_total_time[5],read_leaves_total_time[6],read_leaves_total_time[7]);               
       printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
+      printf("art depth is %d \n",highest_depth);
     } 
 /*
     if (dsm->getMyNodeID() == 0) {

@@ -60,6 +60,8 @@ uint64_t read_internal_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的
 uint64_t read_leaves_time[8][MAX_APP_THREAD]; 
 uint64_t write_time[MAX_APP_THREAD];
 uint64_t cas_time[MAX_APP_THREAD];
+
+int depth_test[MAX_APP_THREAD];
 /*
 uint64_t internal_empty_entry_time[MAX_APP_THREAD]; //找到内部节点空槽插入的时间
 uint64_t internal_extend_empty_entry_time[MAX_APP_THREAD]; //内部节点扩展的时间
@@ -359,11 +361,11 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
-    GlobalAddress leaf_addrs[256];
+/*读叶子    GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
     memset(leaves_ptr,0,256*sizeof(GlobalAddress));
-    int leaf_cnt = 0;
+    int leaf_cnt = 0;*/
     //3.3 search an exists slot first 
     for(int i=0;i < 256;i++)   //bp node 全空？
     {
@@ -380,15 +382,15 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           retry_flag = FIND_NEXT;
           goto next;
         }
-        else 
+       /*读叶子 else 
         {
           leaf_addrs[leaf_cnt] = bp_node->records[i].addr();
           leaves_ptr[leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + i*sizeof(BufferEntry));
           leaf_cnt ++;   
-        }
+        }*/
       }
     }
-
+/*读叶子
     if(leaf_cnt !=0)   //将所有的叶子读过来 看有没有重复的 
     {
         auto read_leaves_start = std::chrono::high_resolution_clock::now();
@@ -430,7 +432,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
               goto insert_finish;
           }
         }
-    }
+    }*/
     //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
   //  if(bhdr.count_1+bhdr.count_2 < 256)
    // {
@@ -1030,7 +1032,7 @@ insert_finish:
   read_buffer_node_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_buffer_node_time_this;
   read_internal_node_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_internal_node_time_this;
   read_leaves_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_leaves_time_this;
-
+  depth_test[dsm->getMyThreadID()] = depth;
 
 #ifdef TREE_TEST_ROWEX_ART
   if (!is_update) unlock_node(node_ptr, cxt, coro_id);
@@ -1313,7 +1315,7 @@ bool Tree::out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddr
   auto remote_cas = [=](){
     cas_cnt[dsm->getMyThreadID()] ++;
     auto cas_start = std::chrono::high_resolution_clock::now();
-    bool res=dsm->cas_sync(e_ptr, (uint64_t)old_e, (uint64_t)new_e, ret_buffer, cxt); //传参问题啊啊啊啊啊！
+    bool res=dsm->cas_sync(e_ptr, (uint64_t)old_e, (uint64_t)new_e, ret_buffer, cxt); 
     auto cas_stop = std::chrono::high_resolution_clock::now();
     auto cas_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cas_stop - cas_start);
     cas_time[dsm->getMyThreadID()] += cas_duration.count();   
@@ -1795,7 +1797,7 @@ re_switch:
     goto re_switch;
   }
 }
-//新建很多个缓冲节点 有重复的往里面放  
+//新建很多个缓冲节点 有重复的往里面放  并且还要去重
 bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,bool from_cache,InternalEntry& old_e, GlobalAddress p_ptr,CoroContext *cxt, int coro_id) {
   //先获取锁 再修改 否则不修改  搞异地更新吧 ！！！！！
   static const uint64_t lock_cas_offset = ROUND_DOWN(STRUCT_OFFSET(InternalBuffer, lock_byte), 3);  //8B对齐
@@ -1890,7 +1892,6 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   {
  
     leaves[i] = *(Leaf_kv *)(leaves_buffer + i * define::allocAlignPageSize);
-
   }
   leaf_cnt = 0;
   InternalBuffer **new_bnodes = new InternalBuffer* [new_bnode_num +1];  //预留一个 可能需要给叶节点 
