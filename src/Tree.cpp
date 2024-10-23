@@ -484,6 +484,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
       
       read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);  
+            bp_node = (InternalBuffer *)buffer_buffer;
       auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
       auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
       read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count(); 
@@ -491,7 +492,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
       }
 
    
-      bp_node = (InternalBuffer *)buffer_buffer;
+
       if(!from_cache)  //先失效父节点（内部节点）
         {
           bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
