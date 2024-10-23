@@ -65,26 +65,12 @@ public:
   bool is_valid(const GlobalAddress& p_ptr, bool from_cache) { return valid && (!from_cache || p_ptr == rev_ptr); }
   bool is_consistent() const 
   {
-    /*
-    crc_processor.reset();
-   // crc_processor.process_bytes((char *)&key, sizeof(Key) + sizeof(uint8_t) * define::simulatedValLen);
-    crc_processor.process_bytes((char *)&key, sizeof(Key));
-    return crc_processor.checksum() == checksum;*/
     if (front_version == rear_version) return true;
     else return false;
   }
 
   void set_consistent() 
   {
-    /*
-    uint64_t check;
-    crc_processor.reset();
- //   crc_processor.process_bytes((char *)&key, sizeof(Key) + sizeof(uint8_t) * define::simulatedValLen);
-    crc_processor.process_bytes((char *)&key, sizeof(Key));
-    check = crc_processor.checksum();
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key));
-    checksum = crc_processor.checksum();*/
     front_version = 0;
     rear_version = front_version;
   }
@@ -102,620 +88,7 @@ public:
   static Key remake_prefix(const Key& key, int depth, uint8_t diff_partial);
   static int longest_common_prefix(const Key &k1, const Key &k2, int depth);
 };
-//结构？？？ ????????????????????????????????????????????????????????????????????????????????????????????????????????????????wtffffffffffffffffffffffffffffffffffffffffffff
-class Leaf_ptr {
-public:
-  // for invalidation
-  GlobalAddress rev_ptr;
-  // TODO: add key len & value len for out-of-place updates
-  union {
-  struct {
-  uint8_t f_padding   : 2;
-  uint8_t leaf_type   : 4;
-  uint8_t valid       : 1;
-  };
-  uint8_t type_valid_byte;
-  };
 
-  uint16_t keylen;
-  uint16_t valen;
-  GlobalAddress k_ptr;
-  GlobalAddress v_ptr;
-
-public:
-  Leaf_ptr() {}
-  Leaf_ptr(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const GlobalAddress& k_ptr,const GlobalAddress& v_ptr) : rev_ptr(rev_ptr), f_padding(0), valid(1), k_ptr(k_ptr), v_ptr(v_ptr){}// { set_consistent(); }
-
-
-  bool is_valid(const GlobalAddress& p_ptr) { return valid && ( p_ptr == rev_ptr); }
-
-  static uint8_t get_partial(const Key& key, int depth);
-  static Key get_leftmost(const Key& key, int depth);
-  static Key get_rightmost(const Key& key, int depth);
-  static Key remake_prefix(const Key& key, int depth, uint8_t diff_partial);
-  static int longest_common_prefix(const Key &k1, const Key &k2, int depth);
-};
-/*存储64B*/
-
-
-/*
-class leaf_1:public Leaf 
-{
-public:
-  // kv
-  Key_1 key;
-  Value_1 value;
-  leaf_1(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_1 key,const Value_1 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_1& get_key() const { return key;};
-  Value_1 get_value() const { return value;};
-  void set_value(const Value_1& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_1));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_1));
-    checksum = crc_processor.checksum();
-  }
-
-
-}__attribute__((packed));
-*/
-/*存储128B*/
-/*
-class leaf_2:public Leaf 
-{
-  public:
-  // kv
-  Key_1 key;
-  Value_2 value;
-
-  leaf_2(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_1 key,const Value_2 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_1& get_key() const { return key;};
-  Value_2 get_value() const { return value;};
-  void set_value(const Value_2& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_2));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_2));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-*/
-/*存储256B  key   */
-/*
-class leaf_3:public Leaf 
-{
-  public:
-  // kv
-  Key_1 key;
-  Value_3 value;
-
-  leaf_3(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_1 key,const Value_3 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_1& get_key() const { return key;};
-  Value_3 get_value() const { return value;};
-  void set_value(const Value_3& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_3));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_3));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-*/
-/*存储512B*/
-/*
-class leaf_4:public Leaf 
-{
-  public:
-  // kv
-  Key_1 key;
-  Value_4 value;
-
-  leaf_4(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_1 key,const Value_4 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_1& get_key() const { return key;};
-  Value_4 get_value() const { return value;};
-  void set_value(const Value_4& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_4));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_1) + sizeof(uint8_t) * sizeof(Value_4));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-*/
-/*存储1024B*/
-/*
-class leaf_5:public Leaf 
-{
-  public:
-  // kv
-  Key_2 key;
-  Value_1 value;
-
-  leaf_5(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_2 key,const Value_1 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_2& get_key() const { return key;};
-  Value_1 get_value() const { return value;};
-  void set_value(const Value_1& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_1));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_1));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-*/
-/*
-class leaf_6:public Leaf 
-{
-  public:
-  // kv
-  Key_2 key;
-  Value_2 value;
-
-  leaf_6(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_2 key,const Value_2 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_2& get_key() const { return key;};
-  Value_2 get_value() const { return value;};
-  void set_value(const Value_2& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_2));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_2));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-*/
-/*
-class leaf_7:public Leaf 
-{
-  public:
-  // kv
-  Key_2 key;
-  Value_3 value;
-
-  leaf_7(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_2 key,const Value_3 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_2& get_key() const { return key;};
-  Value_3 get_value() const { return value;};
-  void set_value(const Value_3& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_3));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_3));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-*/
-/*
-class leaf_8:public Leaf 
-{
-  public:
-  // kv
-  Key_2 key;
-  Value_4 value;
-
-  leaf_8(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_2 key,const Value_4 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_2& get_key() const { return key;};
-  Value_4 get_value() const { return value;};
-  void set_value(const Value_4& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_4));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_2) + sizeof(uint8_t) * sizeof(Value_4));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-*/
-/*
-class leaf_9:public Leaf 
-{
-  public:
-  // kv
-  Key_3 key;
-  Value_1 value;
-
-  leaf_9(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_3 key,const Value_1 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_3& get_key() const { return key;};
-  Value_1 get_value() const { return value;};
-  void set_value(const Value_1& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_1));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_1));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-*/
-/*
-class leaf_10:public Leaf 
-{
-  public:
-  // kv
-  Key_3 key;
-  Value_2 value;
-
-  leaf_10(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_3 key,const Value_2 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_3& get_key() const { return key;};
-  Value_2 get_value() const { return value;};
-  void set_value(const Value_2& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_2));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_2));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-class leaf_11:public Leaf 
-{
-  public:
-  // kv
-  Key_3 key;
-  Value_3 value;
-
-  leaf_11(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_3 key,const Value_3 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_3& get_key() const { return key;};
-  Value_3 get_value() const { return value;};
-  void set_value(const Value_3& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_3));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_3));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-class leaf_12:public Leaf 
-{
-  public:
-  // kv
-  Key_3 key;
-  Value_4 value;
-
-  leaf_12(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_3 key,const Value_4 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_3& get_key() const { return key;};
-  Value_4 get_value() const { return value;};
-  void set_value(const Value_4& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_4));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_3) + sizeof(uint8_t) * sizeof(Value_4));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-class leaf_13:public Leaf 
-{
-  public:
-  // kv
-  Key_4 key;
-  Value_1 value;
-
-  leaf_13(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_4 key,const Value_1 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_4& get_key() const { return key;};
-  Value_1 get_value() const { return value;};
-  void set_value(const Value_1& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_1));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_1));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-class leaf_14:public Leaf 
-{
-  public:
-  // kv
-  Key_4 key;
-  Value_2 value;
-
-  leaf_14(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_4 key,const Value_2 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_4& get_key() const { return key;};
-  Value_2 get_value() const { return value;};
-  void set_value(const Value_2& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_2));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_2));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-class leaf_15:public Leaf 
-{
-  public:
-  // kv
-  Key_4 key;
-  Value_3 value;
-
-  leaf_15(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_4 key,const Value_3 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_4& get_key() const { return key;};
-  Value_3 get_value() const { return value;};
-  void set_value(const Value_3& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_3));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_3));
-    checksum = crc_processor.checksum();
-  }
-}__attribute__((packed));
-class leaf_16:public Leaf 
-{
-  public:
-  // kv
-  Key_4 key;
-  Value_4 value;
-
-  leaf_16(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_4 key,const Value_4 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_4& get_key() const { return key;};
-  Value_4 get_value() const { return value;};
-  void set_value(const Value_4& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_4));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_4) + sizeof(uint8_t) * sizeof(Value_4));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-class leaf_17:public Leaf 
-{
-  public:
-  // kv
-  Key_5 key;
-  Value_1 value;
-
-  leaf_17(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_5 key,const Value_1 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_5& get_key() const { return key;};
-  Value_1 get_value() const { return value;};
-  void set_value(const Value_1& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_1));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_1));
-    checksum = crc_processor.checksum();
-  }
-
-
-}__attribute__((packed));
-class leaf_18:public Leaf 
-{
-  public:
-  // kv
-  Key_5 key;
-  Value_2 value;
-
-  leaf_18(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_5 key,const Value_2 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_5& get_key() const { return key;};
-  Value_2 get_value() const { return value;};
-  void set_value(const Value_2& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_2));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_2));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-class leaf_19:public Leaf 
-{
-  public:
-  // kv
-  Key_5 key;
-  Value_3 value;
-
-  leaf_19(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_5 key,const Value_3 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_5& get_key() const { return key;};
-  Value_3 get_value() const { return value;};
-  void set_value(const Value_3& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_3));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_3));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-class leaf_20:public Leaf 
-{
-  public:
-  // kv
-  Key_5 key;
-  Value_4 value;
-
-  leaf_17(const GlobalAddress& rev_ptr,const int& keylen,const int& valen,const Key_5 key,const Value_4 value):Leaf(rev_ptr,keylen,valen),key(key),value(value) 
-  {set_consistent(); }
-  const Key_5& get_key() const { return key;};
-  Value_4 get_value() const { return value;};
-  void set_value(const Value_4& val) { value = val; }
-
-  virtual bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_4));
-    return crc_processor.checksum() == checksum;
-  }
-
-
-  virtual void set_consistent()
-   {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key_5) + sizeof(uint8_t) * sizeof(Value_4));
-    checksum = crc_processor.checksum();
-  }
-
-}__attribute__((packed));
-*/
 /*
   Header
 */
@@ -843,26 +216,25 @@ public:
   };
 
 public:
-  Header() : depth(0), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax); partial[define::hPartialLenMax -1] = 99;}
-  Header(int depth) : depth(depth), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax); partial[define::hPartialLenMax -1] = 98;}
+  Header() : depth(0), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
+  Header(int depth) : depth(depth), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
   Header(NodeType node_type,Header hdr) : depth(hdr.depth), node_type(node_type), partial_len(hdr.partial_len)
    { //memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);
      for(int i =0 ;i<partial_len;i++)
      partial[i] = hdr.partial[i]; 
-     assert(depth !=0);
    }
   Header(const Key &k, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
     for (int i = 0; i < partial_len; ++ i) partial[i] = get_partial(k, depth + i);
-         assert(depth !=0);
+
   }
   Header(char* partial, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
     for (int i = 0; i < partial_len; ++ i) this->partial[i] = partial[i];
-         assert(depth !=0);
+
   }
   Header(BufferHeader bhdr) : depth(bhdr.depth),node_type(static_cast<uint8_t>(NODE_256)),partial_len(bhdr.partial_len)
   {
     for(int i =0;i<partial_len;i++) partial[i] = bhdr.partial[i];
-         assert(depth !=0);
+
   }
 
   operator uint64_t() { return val; }
@@ -924,17 +296,14 @@ public:
   BufferEntry(uint8_t node_type, uint8_t partial,uint8_t prefix_type,uint8_t leaf_type,const GlobalAddress &addr) :
                 partial(partial),node_type(node_type), prefix_type(prefix_type),leaf_type(leaf_type),packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT}
                  {
-        int v=val;
                  }
   BufferEntry(const BufferEntry& e) :
                 partial(e.partial),node_type(e.node_type), prefix_type(e.prefix_type), leaf_type(e.leaf_type),packed_addr(e.packed_addr) 
                 {
-        int v=val;
                 }
   BufferEntry(NodeType node_type, const BufferEntry& e) :
                 partial(e.partial),node_type(e.node_type),prefix_type(e.prefix_type),leaf_type(static_cast<uint8_t>(node_type)),packed_addr(e.packed_addr)
                  {
-        int v=val;
                  }
   operator uint64_t() const { return val; }
 
@@ -1048,7 +417,7 @@ public:
 
 
 public:
-  InternalBuffer() { std::fill(records, records + 256, BufferEntry::Null());       hdr.count_2 = 100;lock_byte = 0;}
+  InternalBuffer() { std::fill(records, records + 256, BufferEntry::Null()); lock_byte = 0;}
   InternalBuffer(const InternalBuffer &bnode)
    {  rev_ptr.val = bnode.rev_ptr.val;
       hdr.val = bnode.hdr.val;
@@ -1057,13 +426,11 @@ public:
         records[i] = bnode.records[i];
       }
       w_lock = bnode.w_lock;
-   //   hdr.count_2 = 99;
   
     }
 
   InternalBuffer(const Key &k, int partial_len, int depth, int count_1,int count_2, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), hdr(k, partial_len, depth, count_1,count_2) ,lock_byte(0){
     std::fill(records, records + 256, BufferEntry::Null());
-        //  hdr.count_2 = 98;
 
   }
   InternalBuffer(int depth,std::vector<InternalEntry> records)
@@ -1074,7 +441,6 @@ public:
       this->records[i].val = records[i].val;
     }
     lock_byte = 0;
-          hdr.count_2 = 97;
   }
 
   bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr); }

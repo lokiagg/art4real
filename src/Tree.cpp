@@ -151,7 +151,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
   else {leaf_type += 4;leaf_size += 1024;}
   }
-  int cnt_res=cnt.fetch_add(1);
+  // int cnt_res=cnt.fetch_add(1);
   uint64_t k_v = key2int(k);
 
   uint64_t search_from_cache_time_this = 0;
@@ -330,8 +330,6 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
       index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
-/*    if(depth >bhdr.depth) 
-    printf("noooooooooooooooooooooooooooooooooooooooooooooo1!!!!!!!");*/
 
     for (int i = 0; i < bhdr.partial_len; ++ i) {    //缓冲节点分裂   新建一个共同前缀的内部节点
     if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {     //
@@ -361,11 +359,11 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
-/*读叶子    GlobalAddress leaf_addrs[256];
+    GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
     memset(leaves_ptr,0,256*sizeof(GlobalAddress));
-    int leaf_cnt = 0;*/
+    int leaf_cnt = 0;
     //3.3 search an exists slot first 
     for(int i=0;i < 256;i++)   //bp node 全空？
     {
@@ -382,15 +380,15 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           retry_flag = FIND_NEXT;
           goto next;
         }
-       /*读叶子 else 
+       else 
         {
           leaf_addrs[leaf_cnt] = bp_node->records[i].addr();
           leaves_ptr[leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + i*sizeof(BufferEntry));
           leaf_cnt ++;   
-        }*/
+        }
       }
     }
-/*读叶子
+
     if(leaf_cnt !=0)   //将所有的叶子读过来 看有没有重复的 
     {
         auto read_leaves_start = std::chrono::high_resolution_clock::now();
@@ -432,7 +430,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
               goto insert_finish;
           }
         }
-    }*/
+    }
     //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
   //  if(bhdr.count_1+bhdr.count_2 < 256)
    // {
