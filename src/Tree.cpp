@@ -392,7 +392,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     }
     auto loop_stop = std::chrono::high_resolution_clock::now();
     auto loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
-
+    loop_time[dsm->getMyThreadID()] = loop_duration.count();
 
     if(leaf_cnt !=0)   //将所有的叶子读过来 看有没有重复的 
     {

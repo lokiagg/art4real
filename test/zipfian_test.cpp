@@ -57,6 +57,7 @@ extern uint64_t search_from_cache_time[8][MAX_APP_THREAD];
 extern uint64_t read_buffer_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的分8类
 extern uint64_t read_internal_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的分8类
 extern uint64_t read_leaves_time[8][MAX_APP_THREAD]; 
+extern uint64_t loop_time[MAX_APP_THREAD];
 
 int kReadRatio;
 int kThreadCount;
@@ -551,7 +552,7 @@ printf("No cache\n");
       printf("read internal time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_internal_total_time[0],read_internal_total_time[1],read_internal_total_time[2],read_internal_total_time[3],read_internal_total_time[4],read_internal_total_time[5],read_internal_total_time[6],read_internal_total_time[7]);
       printf("read leaves time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_leaves_total_time[0],read_leaves_total_time[1],read_leaves_total_time[2],read_leaves_total_time[3],read_leaves_total_time[4],read_leaves_total_time[5],read_leaves_total_time[6],read_leaves_total_time[7]);               
       printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
-      printf("art depth is %d \n",highest_depth);
+      printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
     } 
 /*
     if (dsm->getMyNodeID() == 0) {
