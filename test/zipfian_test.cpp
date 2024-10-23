@@ -36,6 +36,12 @@ extern uint64_t MN_iops[MAX_APP_THREAD][MEMORY_NODE_NUM];
 extern uint64_t MN_datas[MAX_APP_THREAD][MEMORY_NODE_NUM];
 
 
+extern uint64_t write_cnt[MAX_APP_THREAD];
+extern uint64_t cas_cnt[MAX_APP_THREAD];
+extern uint64_t write_time[MAX_APP_THREAD];
+extern uint64_t cas_time[MAX_APP_THREAD];
+
+
 extern uint64_t insert_time[8][MAX_APP_THREAD];  
 extern uint64_t insert_cnt[8][MAX_APP_THREAD];
 extern uint64_t internal_empty_entry[MAX_APP_THREAD];
@@ -478,6 +484,15 @@ printf("No cache\n");
     for(int i=0;i<MAX_APP_THREAD;i++)
       read_leaves_total_time[j] += read_leaves_time[j][i];
     }
+    uint64_t write_cnt_total= 0,cas_cnt_total = 0,write_time_total = 0,cas_time_total = 0;
+    for(int i=0;i<MAX_APP_THREAD;i++)
+    {
+      write_cnt_total+=write_cnt[i];
+      cas_cnt_total+=cas_cnt[i];
+      write_time_total+=write_time[i];
+      cas_time_total+=cas_time[i];
+    }
+
     tree->clear_debug_info();
 
 //    save_latency(++ count);
@@ -526,6 +541,7 @@ printf("No cache\n");
       printf("read buffer time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_buffer_total_time[0],read_buffer_total_time[1],read_buffer_total_time[2],read_buffer_total_time[3],read_buffer_total_time[4],read_buffer_total_time[5],read_buffer_total_time[6],read_buffer_total_time[7]);
       printf("read internal time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_internal_total_time[0],read_internal_total_time[1],read_internal_total_time[2],read_internal_total_time[3],read_internal_total_time[4],read_internal_total_time[5],read_internal_total_time[6],read_internal_total_time[7]);
       printf("read leaves time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_leaves_total_time[0],read_leaves_total_time[1],read_leaves_total_time[2],read_leaves_total_time[3],read_leaves_total_time[4],read_leaves_total_time[5],read_leaves_total_time[6],read_leaves_total_time[7]);               
+      pritnf("write cnt: %" PRIu64",write time: %" PRIu64",cas cnt: %" PRIu64",cas time: %" PRIu64" \n",write_cnt_total,write_time_total,cas_cnt_total,cas_time_total);
     } 
 /*
     if (dsm->getMyNodeID() == 0) {

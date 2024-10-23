@@ -48,6 +48,8 @@ uint64_t buffer_empty_entry[MAX_APP_THREAD]; // 4
 uint64_t buffer_header_split[MAX_APP_THREAD]; // 5
 uint64_t buffer_reconstruct[MAX_APP_THREAD]; // 6
 uint64_t in_place_update[MAX_APP_THREAD]; // 7
+uint64_t write_cnt[MAX_APP_THREAD];
+uint64_t cas_cnt[MAX_APP_THREAD];
 
 
 
@@ -56,6 +58,8 @@ uint64_t search_from_cache_time[8][MAX_APP_THREAD];
 uint64_t read_buffer_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的分8类
 uint64_t read_internal_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的分8类
 uint64_t read_leaves_time[8][MAX_APP_THREAD]; 
+uint64_t write_time[MAX_APP_THREAD];
+uint64_t cas_time[MAX_APP_THREAD];
 /*
 uint64_t internal_empty_entry_time[MAX_APP_THREAD]; //找到内部节点空槽插入的时间
 uint64_t internal_extend_empty_entry_time[MAX_APP_THREAD]; //内部节点扩展的时间
@@ -1290,8 +1294,12 @@ bool Tree::out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddr
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
     new (leaf_buffer) Leaf_kv(e_ptr,leaf_type,klen,vlen,k, v);
     leaf_addr = dsm->alloc(sizeof(Leaf_kv));
+    write_cnt[dsm->getMyThreadID()]++;
+    auto write_start = std::chrono::high_resolution_clock::now();
     dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
-
+    auto write_stop = std::chrono::high_resolution_clock::now();
+    auto write_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(write_stop - write_start);
+    write_time[dsm->getMyThreadID()] += write_duration.count();
   }
   else {  // write the changed e_ptr inside leaf
     auto ptr_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
@@ -1303,7 +1311,12 @@ bool Tree::out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddr
   auto new_e = BufferEntry(0,get_partial(k,depth-1),1,leaf_type,leaf_addr);   
 
   auto remote_cas = [=](){
+    cas_cnt[dsm->getMyThreadID()] ++;
+    auto cas_start = std::chrono::high_resolution_clock::now();
     bool res=dsm->cas_sync(e_ptr, (uint64_t)old_e, (uint64_t)new_e, ret_buffer, cxt); //传参问题啊啊啊啊啊！
+    auto cas_stop = std::chrono::high_resolution_clock::now();
+    auto cas_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cas_stop - cas_start);
+    cas_time[dsm->getMyThreadID()] += cas_duration.count();   
     return res;
   };
 
