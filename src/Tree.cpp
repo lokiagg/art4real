@@ -60,6 +60,7 @@ uint64_t read_internal_node_time[8][MAX_APP_THREAD];  //找cache时间 一样的
 uint64_t read_leaves_time[8][MAX_APP_THREAD]; 
 uint64_t write_time[MAX_APP_THREAD];
 uint64_t cas_time[MAX_APP_THREAD];
+uint64_t loop_time[]
 
 int depth_test[MAX_APP_THREAD];
 /*
@@ -359,6 +360,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
+    auto loop_start = std::chrono::high_resolution_clock::now();
     GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
@@ -388,6 +390,9 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         }
       }
     }
+    auto loop_stop = std::chrono::high_resolution_clock::now();
+    auto loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
+
 
     if(leaf_cnt !=0)   //将所有的叶子读过来 看有没有重复的 
     {
@@ -1874,6 +1879,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
         }
       }
     }
+    if(count_index[i][0]==256) break;
   }
   //new_bnode_num ++; //异地写 多申请一个
 
