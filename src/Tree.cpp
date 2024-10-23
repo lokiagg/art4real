@@ -1823,20 +1823,20 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   depth ++;
   int first_empty=0;
   bool first_empty_set = false;
-  int count_index[257][257];  //[][0] -> count  [1~] ->index
+  int count_index[256][257];  //[][0] -> count  [1~] ->index
   int leaf_cnt = 0;
-  BufferEntry leaf_addrs[257][257];
+  BufferEntry leaf_addrs[256][257];
   std::vector<RdmaOpRegion> rs;
   int new_bnode_num = 0;
   int leaf_flag = 0; //叶节点的部分键是否重复
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
   GlobalAddress *bnode_addrs;
-  int bnodes_entry_index[257][257];
+  int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
-  memset(count_index,0,256*257*sizeof(int));
-  memset(bnodes_entry_index,0,256*257*sizeof(int));
+  memset(count_index,0,257*257*sizeof(int));
+  memset(bnodes_entry_index,0,257*257*sizeof(int));
 
   for(int i=0; i <256 ;i++)
   {
