@@ -152,7 +152,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
   else {leaf_type += 4;leaf_size += 1024;}
   }
-  // int cnt_res=cnt.fetch_add(1);
+  int cnt_res=cnt.fetch_add(1);
   uint64_t k_v = key2int(k);
 
   uint64_t search_from_cache_time_this = 0;
@@ -301,8 +301,8 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
       read_buffer_node_time_this += read_buffer_node_duration.count();  
       
       bp_node = (InternalBuffer *)buffer_buffer;
-      bp_node->hdr.depth = depth;
-            bp_node->hdr.partial_len = 0;
+      // bp_node->hdr.depth = depth;
+      // bp_node->hdr.partial_len = 0;
 //      parent_buffer = *bp_node;
           //3.1 check partial key
 /*      if( bp_node->hdr.partial_len != 0) 
@@ -486,17 +486,33 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         }
 
       InternalBuffer old_buffer = *bp_node;
-      if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
-      {
+       if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
+       {
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
       buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
-      read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);  
-            bp_node = (InternalBuffer *)buffer_buffer;
+      is_valid = read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);  
+      bp_node = (InternalBuffer *)buffer_buffer;
       auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
       auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
       read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count(); 
       read_buffer_node_time_this += read_buffer_node_duration.count(); 
+
+      if (!is_valid) {  // node deleted || outdated cache entry in cached node
+        if (from_cache) {
+          index_cache->invalidate(entry_ptr_ptr, entry_ptr); //invalid 父节点
+          index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
+        }
+        // re-read node entry
+        auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
+        dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
+        p = *(InternalEntry *)entry_buffer;
+        from_cache = false;
+        retry_flag = INVALID_Buffer_NODE;
+        goto next;
       }
+      
+       }
+      InternalBuffer new_buffer = *bp_node;
 
    
 
