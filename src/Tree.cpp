@@ -778,7 +778,7 @@ else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲�
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);
     GlobalAddress leaf_addrs[256];
-    GlobalAddress dd;
+    GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
     memset(leaves_ptr,0,256*sizeof(GlobalAddress));
     int leaf_cnt = 0;
@@ -1832,8 +1832,8 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
-  memset(count_index,0,257*257*sizeof(int));
-  memset(bnodes_entry_index,0,257*257*sizeof(int));
+  memset(count_index,0,256*257*sizeof(int));
+  memset(bnodes_entry_index,0,256*257*sizeof(int));
 
   for(int i=0; i <256 ;i++)
   {
