@@ -543,9 +543,6 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
   read_internal_node_time[0][dsm->getMyThreadID()] += read_internal_node_duration.count(); 
   read_internal_node_time_this += read_internal_node_duration.count(); 
  
-  parent_add_to_cache_flag = false;
-  page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
-  is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth,from_cache,cxt, coro_id);
   p_node = (InternalPage *)page_buffer;
   parent_page = p_node;
   parent_page_ptr = p.addr();  //先不着急加到cache里面去   有可能会变成进行节点类型转换
@@ -781,7 +778,7 @@ else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲�
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);
     GlobalAddress leaf_addrs[256];
-    GlobalAddress leaves_ptr[256];
+    GlobalAddress dd;
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
     memset(leaves_ptr,0,256*sizeof(GlobalAddress));
     int leaf_cnt = 0;
@@ -1823,16 +1820,16 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   depth ++;
   int first_empty=0;
   bool first_empty_set = false;
-  int count_index[257][257];  //[][0] -> count  [1~] ->index
+  int count_index[256][257];  //[][0] -> count  [1~] ->index
   int leaf_cnt = 0;
-  BufferEntry leaf_addrs[257][257];
+  BufferEntry leaf_addrs[256][256];
   std::vector<RdmaOpRegion> rs;
   int new_bnode_num = 0;
   int leaf_flag = 0; //叶节点的部分键是否重复
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
   GlobalAddress *bnode_addrs;
-  int bnodes_entry_index[257][257];
+  int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
   memset(count_index,0,257*257*sizeof(int));
@@ -1958,7 +1955,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   }
 
   if(!leaf_flag)  //多搞一个缓冲节点
-  { 
+  {
     auto bnode_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();
     new_bnodes[new_bnode_num] =new(bnode_buffer)  InternalBuffer(k,define::bPartialLenMax,depth,1,0,GADD(old_e.addr(),sizeof(GlobalAddress)+sizeof(BufferHeader)+first_empty*sizeof(BufferEntry)));
     new_bnodes[new_bnode_num]->records[0].leaf_type = leaf_type;
