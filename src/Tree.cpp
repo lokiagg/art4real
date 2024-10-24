@@ -487,7 +487,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         }
 
       InternalBuffer old_buffer = *bp_node;
-/*       if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
+/* 没必要再读一遍了吧       if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
        {
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
       buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
@@ -1849,7 +1849,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
-  memset(count_index,0,sizeof(count_index));
+  memset(count_index,0,sizeof(count_index));  
   memset(bnodes_entry_index,0,sizeof(bnodes_entry_index));
 
   for(int i=0; i <256 ;i++)
@@ -1927,8 +1927,8 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
     leaves[i] = *(Leaf_kv *)(leaves_buffer + i * define::allocAlignPageSize);
   }
 
-  // 这里在做去重  但是还没有完全搞定啊啊啊啊啊  做了去重之后还要去修改bnode的槽 c啊
-  for(int i = 0;i<leaf_cnt;i++)
+  // 这里在做去重 去重没必要用整个叶子   但是还没有完全搞定啊啊啊啊啊  做了去重之后还要去修改bnode的槽 c啊
+/*  for(int i = 0;i<leaf_cnt;i++)
   {
     if(leaves[i].valid == 1)
     {
@@ -1945,7 +1945,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
      // leaf_slot_idx[leaf_no_repeat_cnt ++] = idx ;
      leaves_no_repeat[leaf_no_repeat_cnt ++] = leaves [idx];
     }
-  }
+  }*/
   leaf_cnt = 0;
   InternalBuffer **new_bnodes = new InternalBuffer* [new_bnode_num +1];  //预留一个 可能需要给叶节点 
 
