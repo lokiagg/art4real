@@ -489,7 +489,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
 //      if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
 //      {
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
-      
+      buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
       read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);  
             bp_node = (InternalBuffer *)buffer_buffer;
       auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
@@ -1832,8 +1832,8 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
   int bnodes_entry_index[256][257];
   // int first_empty_flag = 0;
   // int first_empty = -1;
-  memset(count_index,0,256*257*sizeof(int));
-  memset(bnodes_entry_index,0,256*257*sizeof(int));
+  memset(count_index,0,sizeof(count_index));
+  memset(bnodes_entry_index,0,sizeof(bnodes_entry_index));
 
   for(int i=0; i <256 ;i++)
   {
@@ -1841,7 +1841,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
     {
       count_index[(int)bnode->records[i].partial][0] ++;
       count_index[(int)bnode->records[i].partial][count_index[(int)bnode->records[i].partial][0]] = i;
-  //  if(count_index[(int)bnode.records[i].partial][0] > 1) printf("partial is %d \n",i);
+    // if(count_index[(int)bnode.records[i].partial][0] > 1) printf("partial is %d \n",i);
     }
   }
 
