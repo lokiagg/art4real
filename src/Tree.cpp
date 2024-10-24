@@ -290,6 +290,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
        bp_node =new InternalBuffer(cache_entry_buffer->depth,cache_entry_buffer->records);
     //  不加上这个的话每次next都要new...
       //is_valid？ 本地的节点如何验证 is valid？？   不用验证 ？
+      bp_node->rev_ptr.val = p_ptr.val;
      }
      else
 {
@@ -486,7 +487,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         }
 
       InternalBuffer old_buffer = *bp_node;
-       if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
+/*       if(from_cache && buffer_from_cache_flag)  //从cache里获得的buffer才需要重新读 
        {
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
       buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
@@ -511,8 +512,8 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         goto next;
       }
       
-       }
-      InternalBuffer new_buffer = *bp_node;
+      }*/
+      // InternalBuffer new_buffer = *bp_node;
 
    
 
