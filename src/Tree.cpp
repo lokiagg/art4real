@@ -362,7 +362,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
-/*    auto loop_start = std::chrono::high_resolution_clock::now();
+    auto loop_start = std::chrono::high_resolution_clock::now();
     GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
@@ -438,7 +438,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
               goto insert_finish;
           }
         }
-    }*/
+    }
     //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
   //  if(bhdr.count_1+bhdr.count_2 < 256)
    // {
@@ -1917,32 +1917,56 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
 
 
   Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
+  Leaf_kv *leaves_no_repeat = new Leaf_kv [leaf_cnt];
+//  int* leaf_slot_idx = new int [leaf_cnt]; //记录不重复的叶子的槽位置
+  int leaf_no_repeat_cnt = 0;
   //读到了leaves_buffer
   for(int i = 0;i<leaf_cnt;i++)
   {
- 
+  
     leaves[i] = *(Leaf_kv *)(leaves_buffer + i * define::allocAlignPageSize);
+  }
+
+  // 这里在做去重  但是还没有完全搞定啊啊啊啊啊  做了去重之后还要去修改bnode的槽 c啊
+  for(int i = 0;i<leaf_cnt;i++)
+  {
+    if(leaves[i].valid == 1)
+    {
+      if(leaves[i].get_key() == k) return true;
+      int idx = i;
+      for(int j=i +1;j<leaf_cnt;j++)
+      {
+        if(leaves[j].get_key() == leaves[idx].get_key())
+        {
+          leaves[idx].valid = 0;  //和前面有重复的 把前面的设置为无效的
+          idx = j;
+        }
+      }
+     // leaf_slot_idx[leaf_no_repeat_cnt ++] = idx ;
+     leaves_no_repeat[leaf_no_repeat_cnt ++] = leaves [idx];
+    }
   }
   leaf_cnt = 0;
   InternalBuffer **new_bnodes = new InternalBuffer* [new_bnode_num +1];  //预留一个 可能需要给叶节点 
 
   for (int i = 0; i < new_bnode_num ; ++ i) {    //会涉及到多次cas 开销 --->上锁
     auto bnode_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();
-    std::vector<Key> leaf_key;
+ //   std::vector<Key> leaf_key;
         GlobalAddress rev_ptr_add = leaf_flag? bnode_addrs[new_bnode_num]:bnode_addrs[new_bnode_num+1];
     GlobalAddress rev_ptr = leaf_flag? GADD(bnode_addrs[new_bnode_num], sizeof(GlobalAddress) + sizeof(Header) + bnodes_entry_index[i][1] * sizeof(BufferEntry)):GADD(bnode_addrs[new_bnode_num+1], sizeof(GlobalAddress) + sizeof(Header) + bnodes_entry_index[i][1] * sizeof(BufferEntry));
     new_bnodes[i] = new (bnode_buffer) InternalBuffer();
     new_bnodes[i]->rev_ptr.val = rev_ptr.val;
     for(int j =0;j<bnodes_entry_index[i][0];j++)
     {
-      new_bnodes[i]->records[j].val = leaf_addrs[i][j].val;
+      new_bnodes[i]->records[j].val = leaf_addrs[i][j].val;  //应该是下一个啊啊啊啊啊啊 wtf??????  原来在下面改了哦
+      new_bnodes[i]->records[j].partial = get_partial(leaves[leaf_cnt].get_key(),depth);  //没事 少一个循环挺好的
     //  assert(new_bnodes[i]->records[j].packed_addr.mn_id == 0);
-      leaf_key.push_back(leaves[leaf_cnt].get_key());
+    //  leaf_key.push_back(leaves[leaf_cnt].get_key());
       leaf_cnt ++;
     }
     if(leaf_flag && bnode->records[bnodes_entry_index[i][1]].partial == new_leaf_partial)
     {
-      leaf_key.push_back(k);
+     // leaf_key.push_back(k);
       leaf_cnt++;
       new_bnodes[i]->records[bnodes_entry_index[i][0]].leaf_type = leaf_type;
       new_bnodes[i]->records[bnodes_entry_index[i][0]].node_type = 0;
@@ -1954,15 +1978,15 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
     }
     leaf_cnt -= bnodes_entry_index[i][0];
 
-    int com_par_len = 0;//get_2B_partial(leaf_key,depth);
+    // int com_par_len = 0;//get_2B_partial(leaf_key,depth);
     // if(com_par_len >2) com_par_len = 2;
-    BufferHeader  bhdr(leaf_key[0], com_par_len, depth , bnodes_entry_index[i][0], 0);
+    BufferHeader  bhdr(leaf_key[0], 0, depth , bnodes_entry_index[i][0], 0);
     new_bnodes[i]->hdr.val = bhdr.val;
     
-    for(int j =0;j<bnodes_entry_index[i][0];j++)
-    {
-      new_bnodes[i]->records[j].partial = get_partial(leaf_key.at(leaf_cnt),depth + com_par_len);
-    }
+    // for(int j =0;j<bnodes_entry_index[i][0];j++)
+    // {
+      // new_bnodes[i]->records[j].partial = get_partial(leaf_key.at(leaf_cnt),depth + com_par_len);
+    // }
      //修改bufferentry的地址 
     bnode->records[bnodes_entry_index[i][1]].packed_addr={bnode_addrs[i].nodeID, bnode_addrs[i].offset >> ALLOC_ALLIGN_BIT};
     bnode->records[bnodes_entry_index[i][1]].node_type = 1;
