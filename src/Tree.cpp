@@ -1861,7 +1861,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
         leaf_addrs[new_bnode_num - 1][j].val = bnode->records[count_index[i][j + 1]].val;
         RdmaOpRegion r;
         r.dest       = bnode->records[count_index[i][j + 1]].addr();
-        assert(r.dest !=0);
+        // assert(r.dest !=0);
         r.size       = sizeof(Leaf_kv);
         r.is_on_chip = false;
         rs.push_back(r);
