@@ -1874,24 +1874,14 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
           {
             first_empty = count_index[i][j + 1];first_empty_set = true;
           }
-        //  bnode->records[count_index[i][j + 1]] = BufferEntry::Null();
+          bnode->records[count_index[i][j + 1]] = BufferEntry::Null();
         }
       }
     }
     //  if(l_cnt==256) break;
   }
-  for(int i =0;i<256;i++)
-  {
-    if(count_index[i][0]>=1)
-    {
-      for(int j=1;j<=count_index[i][0];j++)
-      {
-        bnode->records[count_index[i][j]] = BufferEntry::Null();   //清空相应的槽
-      }
-    }
-  }
 
-
+  
   //new_bnode_num ++; //异地写 多申请一个
 
   bnode_addrs = new GlobalAddress[new_bnode_num + 2];   //最后一个放转换为内部节点后的buffe的地址 
