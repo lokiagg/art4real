@@ -2141,9 +2141,9 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   std::map<char,std::vector<int>> mp;
   bool update_flag = false;
   for(int i = 255; i >= 0; i --){
-    Key& tmp_k = leaves[i].get_key();
+    Key& tmp_k = leaves[i]->get_key();
     char c = tmp_k[depth]; // 不太确定这里拿到的是不是下一个字节
-    if(!s.contains(tmp_k)){
+    if(s.find(tmp_k) == s.end()){
       if(tmp_k == k)  //有的话更新
       {
         in_place_update_leaf(k,v,bnode->records[i].addr(),leaf_type,leaf_buffer,cxt,coro_id); 
@@ -2161,7 +2161,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   old_page = new (old_page_buffer) InternalPage(k,0,bnode->hdr.depth,old_page_type,bnode->rev_ptr);
   // Header new_hdr(bnode->hdr);
   // old_page->hdr.val = new_hdr.val;
-  old_page->lock_byte = 99;
+  old_page->l_padding = 99;
   // old_page->lock_byte = 0;
   assert(old_page->hdr.val !=0);
   bnode_addrs = new GlobalAddress[mp.size() + 1];   //最后一个放转换为内部节点后的buffe的地址 
@@ -2177,7 +2177,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     for(auto& be : v){
      if(be == -1)
      {
-      BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
+      BufferEntry leaf_b_entry(0,get_partial(k,depth),leaf_type,leaf_addr);
       new_bnodes[new_bnode_num]->records[j].val = leaf_b_entry.val;
      }
      else{
@@ -2187,7 +2187,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
      j++;
     }
     new_bnodes[new_bnode_num]->rev_ptr.val = GADD(bnode_addrs[mp.size()],sizeof(BufferHeader)+sizeof(GlobalAddress)+new_bnode_num*sizeof(BufferEntry)).val;  
-    new_bnodes[new_bnode_num]->hdr =new BufferHeader(depth);
+    BufferHeader new_hdr(depth);
+    new_bnodes[new_bnode_num]->hdr.val = new_hdr.val;
     new_bnodes[new_bnode_num]->hdr.count_1 = v.size();
     new_bnode_num ++;
   }
