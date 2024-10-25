@@ -2173,6 +2173,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     auto& v = it.second;
     // 这里 new 一个新的buffer，，假设是bf
     old_page->records[new_bnode_num].packed_addr ={bnode_addrs[new_bnode_num].nodeID,bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT} ;
+    old_page->records[new_bnode_num].partial = it.first;
+    old_page->records[new_bnode_num].child_type = 1;
     
     int j = 0;
     for(auto& be : v){
