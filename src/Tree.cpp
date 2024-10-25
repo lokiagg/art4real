@@ -329,7 +329,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     }
 
     bhdr=bp_node->hdr;
-    if (depth == bhdr.depth && !from_cache) {
+    if (depth == bhdr.depth && !buffer_from_cache_flag) {
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
       index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
@@ -369,7 +369,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     memset(leaves_ptr,0,256*sizeof(GlobalAddress));
     int leaf_cnt = 0;
     //3.3 search an exists slot first 
-    for(int i=0;i < 256;i++)   //bp node 全空？
+/*    for(int i=0;i < 256;i++)   //bp node 全空？
     {
       if(bp_node->records[i] != BufferEntry::Null()&&bp_node->records[i].partial == partial )
       {
@@ -391,7 +391,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           leaf_cnt ++;   
         }
       }
-    }
+    }*/
     auto loop_stop = std::chrono::high_resolution_clock::now();
     auto loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(loop_stop - loop_start);  
     loop_time[dsm->getMyThreadID()] = loop_duration.count();
