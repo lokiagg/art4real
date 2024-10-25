@@ -2142,7 +2142,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   bool update_flag = false;
   for(int i = 255; i >= 0; i --){
     Key& tmp_k = leaves[i].key;
-    char c = tmp_k[depth]; // 不太确定这里拿到的是不是下一个字节
+    char c = tmp_k[depth-1]; // 不太确定这里拿到的是不是下一个字节
     if(s.find(tmp_k) == s.end()){
       if(tmp_k == k)  //有的话更新
       {
