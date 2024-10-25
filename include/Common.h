@@ -103,7 +103,7 @@ constexpr int64_t kPerThreadRdmaBuf  = rdmaBufferSize * define::GB / MAX_APP_THR
 constexpr int64_t kPerCoroRdmaBuf    = kPerThreadRdmaBuf / MAX_CORO_NUM;
 
 // Cache (MB)
-constexpr int kIndexCacheSize = 4096;
+constexpr int kIndexCacheSize = 8192;
 
 // KV
 constexpr uint32_t maxkeyLen = 128;   
