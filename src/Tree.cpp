@@ -362,7 +362,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
-/*    auto loop_start = std::chrono::high_resolution_clock::now();
+    auto loop_start = std::chrono::high_resolution_clock::now();
     GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
@@ -402,7 +402,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         auto read_leaves_start = std::chrono::high_resolution_clock::now();
         auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_range_buffer(); 
 
-        is_valid = read_leaves(leaf_addrs, leaf_buffer,leaf_cnt,leaves_ptr,from_cache,cxt,coro_id);
+        is_valid = read_leaves(leaf_addrs, leaf_buffer,leaf_cnt,leaves_ptr,buffer_from_cache_flag,cxt,coro_id);
         auto read_leaves_stop = std::chrono::high_resolution_clock::now();
         auto read_leaves_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_leaves_stop - read_leaves_start);  
         read_leaves_time[0][dsm->getMyThreadID()] += read_leaves_duration.count();
@@ -438,7 +438,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
               goto insert_finish;
           }
         }
-    }*/
+    }
     //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
   //  if(bhdr.count_1+bhdr.count_2 < 256)
    // {
