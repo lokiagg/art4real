@@ -2146,7 +2146,9 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     if(s.find(tmp_k) == s.end()){
       if(tmp_k == k)  //有的话更新
       {
-        in_place_update_leaf(k,v,bnode->records[i].addr(),leaf_type,&leaves[i],cxt,coro_id); 
+        auto update_leaf = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
+        memcpy(update_leaf,&leaves[i],sizeof(Leaf_kv));
+        in_place_update_leaf(k,v,bnode->records[i].addr(),leaf_type,update_leaf,cxt,coro_id); 
         update_flag = true;
       }
       mp[c].push_back(i);
@@ -2175,7 +2177,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     old_page->records[new_bnode_num].packed_addr ={bnode_addrs[new_bnode_num].nodeID,bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT} ;
     old_page->records[new_bnode_num].partial = it.first;
     old_page->records[new_bnode_num].child_type = 1;
-    
+
     int j = 0;
     for(auto& be : v){
     auto bnode_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();
