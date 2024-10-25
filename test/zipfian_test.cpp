@@ -66,7 +66,7 @@ int kNodeCount;
 
 uint64_t kKeySpace = 60 * define::MB;
 //uint64_t kKeySpace = 2000;
-double kWarmRatio = 1;
+double kWarmRatio = 0.2;
 double zipfan = 0;
 int kCoroCnt = 2;
 #ifdef TEST_INSERT
