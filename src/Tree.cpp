@@ -521,7 +521,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
           index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
         }
-        bool res=out_of_place_write_buffer_node(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,entry_ptr_ptr,entry_ptr,from_cache,p, p_ptr,cxt,coro_id);
+        bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,entry_ptr_ptr,entry_ptr,from_cache,p, p_ptr,cxt,coro_id);
 
         if(from_cache && buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改
@@ -2092,6 +2092,166 @@ if(res)
 return false;
 }
 
+bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,bool from_cache,InternalEntry& old_e, GlobalAddress p_ptr,CoroContext *cxt, int coro_id) {
+  //先获取锁 再修改 否则不修改  搞异地更新吧 ！！！！！
+  static const uint64_t lock_cas_offset = ROUND_DOWN(STRUCT_OFFSET(InternalBuffer, lock_byte), 3);  //8B对齐
+  static const uint64_t lock_mask       = 1UL << ((STRUCT_OFFSET(InternalBuffer, lock_byte) - lock_cas_offset) * 8);
+  auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
+  auto acquire_lock = dsm->cas_mask_sync(GADD(old_e.addr(), lock_cas_offset), 0UL, ~0UL, cas_buffer, lock_mask, cxt);
+
+  if(!acquire_lock) return false;
+
+  depth ++;
+  int leaf_cnt = 0;
+  int leaf_entry_cnt[256];  //记录在bnode 的槽里面partialkey一致的叶子的数量
+  std::vector<RdmaOpRegion> rs;
+  int new_bnode_num = 0;
+  int leaf_flag = 0; //叶节点的部分键是否重复
+  uint8_t new_leaf_partial = get_partial(k,depth-1);
+  BufferEntry *new_leaf_be;
+  GlobalAddress *bnode_addrs;
+  leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
+  auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
+  for(int i =0;i<256;i++)  //把所有叶子读过来
+  {
+     RdmaOpRegion r;
+        r.dest       = bnode->records[i].addr();
+        rs[i].source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
+        // assert(r.dest !=0);
+        r.size       = sizeof(Leaf_kv);
+        r.is_on_chip = false;
+        rs.push_back(r);
+  }
+  //读需要放在下一层的叶节点 read_batch
+  dsm->read_batches_sync(rs);   //没读过来？？？搞成单次读呢？
+  //写叶节点
+  auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
+
+  leaf_addr = dsm->alloc(sizeof(Leaf_kv));
+
+
+  Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
+  int leaf_no_repeat_cnt = 0;
+  //读到了leaves_buffer
+  for(int i = 0;i<leaf_cnt;i++)
+  {
+    leaves[i] = *(Leaf_kv *)(leaves_buffer + i * define::allocAlignPageSize);
+  }
+  std::set<Key> s;
+  std::map<char,std::vector<int>> mp;
+  bool update_flag = false;
+  for(int i = 255; i >= 0; i --){
+    Key& tmp_k = leaves[i].get_key();
+    char c = tmp_k[depth]; // 不太确定这里拿到的是不是下一个字节
+    if(!s.contains(tmp_k)){
+      if(tmp_k == k)  //有的话更新
+      {
+        in_place_update_leaf(k,v,bnode->records[i].addr(),leaf_type,leaf_buffer,cxt,coro_id); 
+        update_flag = true;
+      }
+      mp[c].push_back(i);
+      s.insert(tmp_k);
+    }
+  }
+  // BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
+  if(!update_flag) mp[new_leaf_partial].push_back( -1);
+  NodeType old_page_type = num_to_node_type((int)mp.size());
+  auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
+  InternalPage * old_page;
+  old_page = new (old_page_buffer) InternalPage(k,0,bnode->hdr.depth,old_page_type,bnode->rev_ptr);
+  // Header new_hdr(bnode->hdr);
+  // old_page->hdr.val = new_hdr.val;
+  old_page->lock_byte = 99;
+  // old_page->lock_byte = 0;
+  assert(old_page->hdr.val !=0);
+  bnode_addrs = new GlobalAddress[mp.size() + 1];   //最后一个放转换为内部节点后的buffe的地址 
+  dsm->alloc_bnodes(mp.size() +1, bnode_addrs);
+  InternalBuffer **new_bnodes = new InternalBuffer* [mp.size()];  //预留一个 可能需要给叶节点 
+  for(auto& it : mp){
+    //char partial = it.first;
+    auto& v = it.second;
+    // 这里 new 一个新的buffer，，假设是bf
+    old_page->records[new_bnode_num].packed_addr ={bnode_addrs[new_bnode_num].nodeID,bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT} ;
+    
+    int j = 0;
+    for(auto& be : v){
+     if(be == -1)
+     {
+      BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
+      new_bnodes[new_bnode_num]->records[j].val = leaf_b_entry.val;
+     }
+     else{
+      new_bnodes[new_bnode_num]->records[j].val = bnode->records[be].val; // 这里意思是第 i 个叶子的地址
+      new_bnodes[new_bnode_num]->records[j].partial = get_partial(leaves[be].get_key(),depth); 
+     }
+     j++;
+    }
+    new_bnodes[new_bnode_num]->rev_ptr.val = GADD(bnode_addrs[mp.size()],sizeof(BufferHeader)+sizeof(GlobalAddress)+new_bnode_num*sizeof(BufferEntry)).val;  
+    new_bnodes[new_bnode_num]->hdr =new BufferHeader(depth);
+    new_bnodes[new_bnode_num]->hdr.count_1 = v.size();
+    new_bnode_num ++;
+  }
+
+  //整一个write_batch  写所有的缓冲节点和叶节点 还有写旧的叶节点
+  /*  */
+  int write_num = update_flag? new_bnode_num +1:new_bnode_num +2;
+  RdmaOpRegion *rs_write =  new RdmaOpRegion[write_num];
+  memset(rs_write,0,sizeof(RdmaOpRegion)*(write_num));
+
+  for (int i = 0; i < new_bnode_num; ++ i) {
+    rs_write[i].source     = (uint64_t)new_bnodes[i];
+    rs_write[i].dest       = bnode_addrs[i];
+    rs_write[i].size       = sizeof(InternalBuffer);
+    rs_write[i].is_on_chip = false;
+   // dsm->write((const char*)new_bnodes[i], bnode_addrs[i], sizeof(InternalBuffer), false, cxt);
+  }
+  if(!update_flag){
+    rs_write[new_bnode_num].source     = (uint64_t)leaf_buffer;
+    rs_write[new_bnode_num].dest       = leaf_addr;
+    rs_write[new_bnode_num].size       = sizeof(Leaf_kv);
+    rs_write[new_bnode_num].is_on_chip = false;
+  //  dsm->write((const char*)leaf_buffer, leaf_addr, sizeof(Leaf_kv), false, cxt);
+  }
+  {
+    rs_write[write_num-1].source     = (uint64_t)old_page_buffer;
+    rs_write[write_num-1].dest       = bnode_addrs[new_bnode_num];  //是最后一个地址
+    rs_write[write_num-1].size       = sizeof(InternalBuffer);
+    rs_write[write_num-1].is_on_chip = false;
+  //  dsm->write((const char*)old_bnode_buffer, e_ptr, sizeof(InternalBuffer), false, cxt);
+  }
+
+
+  dsm->write_batches_sync(rs_write, write_num, cxt, coro_id);
+  auto cas_node_type_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
+  InternalEntry new_entry(old_e);
+  new_entry.child_type = 2;
+  new_entry.node_type = static_cast<uint8_t>(old_page_type);
+//  new (cas_node_type_buffer) InternalEntry(new_entry);
+  new_entry.packed_addr = {bnode_addrs[new_bnode_num].nodeID, bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT};
+  // assert(new_entry.packed_addr.mn_id == 0);
+  bool res =dsm->cas_sync(p_ptr, (uint64_t)old_e, (uint64_t)new_entry, cas_node_type_buffer, cxt);
+
+  // assert(res == true && new_entry.child_type == 2);
+
+  //先失效 再加
+  if(from_cache)
+  {
+    index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
+  }
+   index_cache->add_to_cache(k, 0,(InternalPage*)old_page, GADD(bnode_addrs[new_bnode_num], sizeof(GlobalAddress) + sizeof(BufferHeader)));
+
+// old_e = *(InternalEntry*) cas_node_type_buffer;
+if(res)
+{
+   for (int i = 0; i < new_bnode_num; ++ i) {
+      // printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
+       index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
+   }
+  return true;
+}
+//old_e = *(InternalEntry*) cas_node_type_buffer;
+return false;
+}
 //新建很多个缓冲节点 有重复的往里面放  
 bool Tree::out_of_place_write_buffer_node_from_buffer(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,bool from_cache,BufferEntry& old_e, GlobalAddress p_ptr,CoroContext *cxt, int coro_id) {
   //先获取锁 再修改 否则不修改

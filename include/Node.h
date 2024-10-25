@@ -421,7 +421,7 @@ public:
   InternalBuffer(const InternalBuffer &bnode)
    {  rev_ptr.val = bnode.rev_ptr.val;
       hdr.val = bnode.hdr.val;
-      for(int i=0;i<256;i++)
+/**/      for(int i=0;i<256;i++)
       {
         records[i] = bnode.records[i];
       }
