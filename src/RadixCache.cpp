@@ -41,6 +41,8 @@ v = (uint64_t)page->hdr;
     _evict();
   }
 
+   std::cout <<" free_size=" << free_manager->remain_size() / define::MB << " MB"<<std::endl;
+
   return;
 }
 
