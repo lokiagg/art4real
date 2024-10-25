@@ -329,7 +329,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     }
 
     bhdr=bp_node->hdr;
-    if (depth == bhdr.depth && !from_cache) {
+    if (depth == bhdr.depth && !from_cache) {   //疯狂加入cache cache会炸掉
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
       index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
@@ -363,7 +363,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
     auto loop_start = std::chrono::high_resolution_clock::now();
-    GlobalAddress leaf_addrs[256];
+/*    GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
     memset(leaves_ptr,0,256*sizeof(GlobalAddress));
@@ -438,7 +438,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
               goto insert_finish;
           }
         }
-    }
+    }*/
     //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
   //  if(bhdr.count_1+bhdr.count_2 < 256)
    // {
