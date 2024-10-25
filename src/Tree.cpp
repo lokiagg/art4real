@@ -2109,15 +2109,14 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   int leaf_flag = 0; //叶节点的部分键是否重复
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
-  GlobalAddress *bnode_addrs;
-  bnode_addrs = new GlobalAddress[new_bnode_num + 2]; 
+  GlobalAddress *bnode_addrs; 
   leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
   auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
   for(int i =0;i<256;i++)  //把所有叶子读过来
   {
      RdmaOpRegion r;
         r.dest       = bnode->records[i].addr();
-        rs[i].source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
+        r.source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
         // assert(r.dest !=0);
         r.size       = sizeof(Leaf_kv);
         r.is_on_chip = false;
@@ -2156,6 +2155,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   }
   // BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
   if(!update_flag) mp[new_leaf_partial].push_back( -1);
+  bnode_addrs = new GlobalAddress[mp.size()+1];
   NodeType old_page_type = num_to_node_type((int)mp.size());
   auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
   InternalPage * old_page;
