@@ -2146,7 +2146,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     if(s.find(tmp_k) == s.end()){
       if(tmp_k == k)  //有的话更新
       {
-        auto update_leaf = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
+        auto update_leaf =(Leaf_kv*) (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
         memcpy(update_leaf,&leaves[i],sizeof(Leaf_kv));
         in_place_update_leaf(k,v,bnode->records[i].addr(),leaf_type,update_leaf,cxt,coro_id); 
         update_flag = true;
