@@ -2102,7 +2102,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   if(!acquire_lock) return false;
 
   depth ++;
-  int leaf_cnt = 0;
+  int leaf_cnt = 256;
   int leaf_entry_cnt[256];  //记录在bnode 的槽里面partialkey一致的叶子的数量
   std::vector<RdmaOpRegion> rs;
   int new_bnode_num = 0;
