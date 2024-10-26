@@ -440,12 +440,12 @@ public:
   InternalBuffer(int depth,std::vector<InternalEntry> records)
   {
     hdr.depth = depth;
-    // for(int i=0;i<(int)records.size();i++)
-    // {
-      // this->records[i].val = records[i].val;
-    // }
+    for(int i=0;i<(int)records.size();i++)
+    {
+      this->records[i].val = records[i].val;
+    }
         //  memcpy(this->records,records,sizeof(BufferEntry)*256);
-    std::copy(records.begin(), records.begin() + 256, this->records);
+    // std::copy(records.begin(), records.begin() + 256, this->records);
     lock_byte = 0;
   }
 
