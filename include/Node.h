@@ -220,20 +220,23 @@ public:
   Header(int depth) : depth(depth), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
   Header(NodeType node_type,Header hdr) : depth(hdr.depth), node_type(node_type), partial_len(hdr.partial_len)
    { //memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);
-     for(int i =0 ;i<partial_len;i++)
-     partial[i] = hdr.partial[i]; 
+    //  for(int i =0 ;i<partial_len;i++)
+    //  partial[i] = hdr.partial[i]; 
+    memcpy(partial,hdr.partial,sizeof(uint8_t)*partial_len);
    }
   Header(const Key &k, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
     for (int i = 0; i < partial_len; ++ i) partial[i] = get_partial(k, depth + i);
 
   }
   Header(char* partial, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
-    for (int i = 0; i < partial_len; ++ i) this->partial[i] = partial[i];
+    // for (int i = 0; i < partial_len; ++ i) this->partial[i] = partial[i];
+        memcpy(this->partial,partial,sizeof(uint8_t)*partial_len);
 
   }
   Header(BufferHeader bhdr) : depth(bhdr.depth),node_type(static_cast<uint8_t>(NODE_256)),partial_len(bhdr.partial_len)
   {
-    for(int i =0;i<partial_len;i++) partial[i] = bhdr.partial[i];
+    // for(int i =0;i<partial_len;i++) partial[i] = bhdr.partial[i];
+        memcpy(partial,bhdr.partial,sizeof(uint8_t)*partial_len);
 
   }
 
@@ -421,10 +424,11 @@ public:
   InternalBuffer(const InternalBuffer &bnode)
    {  rev_ptr.val = bnode.rev_ptr.val;
       hdr.val = bnode.hdr.val;
-/**/      for(int i=0;i<256;i++)
+/**/  /*for(int i=0;i<256;i++)
       {
         records[i] = bnode.records[i];
-      }
+      }*/
+     memcpy(records,bnode.records,sizeof(BufferEntry)*256);
       w_lock = bnode.w_lock;
   
     }
@@ -436,10 +440,11 @@ public:
   InternalBuffer(int depth,std::vector<InternalEntry> records)
   {
     hdr.depth = depth;
-    for(int i=0;i<(int)records.size();i++)
-    {
-      this->records[i].val = records[i].val;
-    }
+    // for(int i=0;i<(int)records.size();i++)
+    // {
+      // this->records[i].val = records[i].val;
+    // }
+         memcpy(this->records,records,sizeof(BufferEntry)*256);
     lock_byte = 0;
   }
 
