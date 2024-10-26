@@ -137,8 +137,8 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   assert(dsm->is_register());
   int leaf_type=-1;
   int leaf_size =0;
-  int klen=128,vlen=1024;   //应该从后往前找！
-  {
+ int klen=128,vlen=1024;   //应该从后往前找！
+/*   {
   int i=127,j=1023;
   while(k[i--] == 0) klen --;
   while(v[j--] == 0) vlen --;
@@ -151,8 +151,8 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   else if ( 16< vlen&& vlen <=256) {leaf_type += 2; leaf_size += 256;}
   else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
   else {leaf_type += 4;leaf_size += 1024;}
-  }
-  int cnt_res=cnt.fetch_add(1);
+  }*/
+  // int cnt_res=cnt.fetch_add(1);
   uint64_t k_v = key2int(k);
 
   uint64_t search_from_cache_time_this = 0;
@@ -206,7 +206,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   //search from cache
   auto search_from_cache_start = std::chrono::high_resolution_clock::now();
 
-  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
+  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个  发现失效的时候能不能只修改一个本地的父节点的槽捏 
   auto search_from_cache_stop = std::chrono::high_resolution_clock::now();
   auto search_from_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
   search_from_cache_time[0][dsm->getMyThreadID()] += search_from_cache_duration.count();
