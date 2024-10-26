@@ -445,7 +445,7 @@ public:
       // this->records[i].val = records[i].val;
     // }
         //  memcpy(this->records,records,sizeof(BufferEntry)*256);
-    std::copy(records.begin(), records.begin() + 256, this->records)
+    std::copy(records.begin(), records.begin() + 256, this->records);
     lock_byte = 0;
   }
 
