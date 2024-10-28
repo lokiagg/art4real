@@ -4,6 +4,7 @@
 #include "Common.h"
 #include "GlobalAddress.h"
 #include "Key.h"
+#include <tbb/concurrent_vector.h>
 
 
 
@@ -206,10 +207,11 @@ class Header {
 public:
   union {
   struct {
-    uint8_t depth : 7;
+    uint8_t depth : 8;
     uint8_t node_type   : define::nodeTypeNumBit;
     uint8_t partial_len : 8 - define::nodeTypeNumBit;
     uint8_t partial[define::hPartialLenMax];
+    uint8_t empty : 7;
   };
 
   uint64_t val;
@@ -448,8 +450,19 @@ public:
     // std::copy(records.begin(), records.begin() + 256, this->records);
     lock_byte = 0;
   }
+    InternalBuffer(int depth,tbb::concurrent_vector<InternalEntry> records)
+  {
+    hdr.depth = depth;
+    for(int i=0;i<(int)records.size();i++)
+    {
+      this->records[i].val = records[i].val;
+    }
+        //  memcpy(this->records,records,sizeof(BufferEntry)*256);
+    // std::copy(records.begin(), records.begin() + 256, this->records);
+    lock_byte = 0;
+  }
 
-  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr); }
+  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr) && !w_lock ; }
   void unlock() { w_lock = 0; };
   void lock() { w_lock = 1; };
 

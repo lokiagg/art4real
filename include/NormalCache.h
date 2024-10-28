@@ -7,6 +7,7 @@
 
 #include <tbb/concurrent_unordered_map.h>
 #include <tbb/concurrent_queue.h>
+#include <tbb/concurrent_vector.h>
 #include <atomic>
 
 /*
@@ -17,13 +18,16 @@ struct CacheEntry {
   uint8_t depth;
   uint8_t node_type;   // 标识本身是一个什么节点  0 internal 1 buffer
   GlobalAddress addr;  //表示这个节点的第一个slot的起始地址？？
+  // tbb::concurrent_vector<InternalEntry> records;  //改成数组？
+  // std::array<InternalEntry, 256>;
   std::vector<InternalEntry> records;
   // faa
   // volatile mutable uint64_t counter;
 
   CacheEntry() {}
   CacheEntry(const InternalPage* p_node, int node_type, const GlobalAddress& addr) :
-             depth(p_node->hdr.depth + p_node->hdr.partial_len), node_type(node_type), addr(addr){
+             depth(p_node->hdr.depth), node_type(node_type), addr(addr){
+    
     if(node_type == 0)
     {
       for (int i = 0; i < node_type_to_num(p_node->hdr.type()); ++ i) {
@@ -62,7 +66,7 @@ public:
   NormalCache(int cache_size, DSM *dsm);
 
   void add_to_cache(const Key& k, int node_type,const InternalPage* p_node, const GlobalAddress &node_addr);
-
+  void add_to_cache_new(const Key& k, int node_type,const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry * &entry_ptr);
   bool search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& entry_idx);
   void search_range_from_cache(const Key &from, const Key &to, std::vector<RangeCache> &result);
   void invalidate(CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr);

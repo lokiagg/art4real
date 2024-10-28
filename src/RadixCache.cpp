@@ -23,15 +23,43 @@ void RadixCache::clear() {
 }
 
 void RadixCache::add_to_cache(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr) {
+assert(node_type <= 1);
 InternalPage * page = const_cast<InternalPage*>(p_node);
 v = (uint64_t)page->hdr;
-  auto depth = p_node->hdr.depth - 1;
+  // auto depth = p_node->hdr.depth - 1;
+    int depth = p_node->hdr.depth - 1;
   if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
 
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
   for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
   auto new_entry = new CacheEntry(p_node,node_type,node_addr);
+
+  _insert(byte_array, new_entry);
+#ifndef CACHE_ENABLE_ART
+  free_manager->consume(sizeof(Key));  // emulate hash-based cache
+#endif
+  if (free_manager->remain_size() < 0) {
+    _evict();
+  }
+
+  //  std::cout <<" free_size=" << free_manager->remain_size() / define::MB << " MB"<<std::endl;
+
+  return;
+}
+void RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr , CacheEntry* &entry_ptr ) {
+  assert(node_type <= 1);
+  InternalPage * page = const_cast<InternalPage*>(p_node);
+  v = (uint64_t)page->hdr;
+  
+  int depth = p_node->hdr.depth - 1;
+  if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
+
+  std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
+  for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
+
+  auto new_entry = new CacheEntry(p_node,node_type,node_addr);
+  entry_ptr = new_entry;
 
   _insert(byte_array, new_entry);
 #ifndef CACHE_ENABLE_ART
@@ -54,6 +82,7 @@ void RadixCache::_insert(const std::vector<uint8_t>& byte_array, CacheEntry* new
 next:
   // 1. parse header
   auto hdr = (CacheHeader *)node->header;
+  // assert(hdr->partial.size() == 0);
   for (int i = 0; i < (int)hdr->partial.size(); ++ i) {   //要进行分裂   也是新建一个cache node
     auto cur_partial = byte_array[hdr->depth + i];
     if (hdr->depth + i == (int)byte_array.size() - 1 || cur_partial != hdr->partial[i]) {
@@ -108,7 +137,7 @@ next:
   auto partial = byte_array[idx];
 
   // 2.1 last level
-  if (idx == (int)byte_array.size() - 1) {
+  if (idx == (int)byte_array.size() - 1) {  //new_entry下面就不用生成内部节点了吧  只需要加一个entry就好
     auto& node_entry = cache_map[partial];
     auto old_entry = (CacheEntry *)node_entry.cache_entry;
     if (__sync_bool_compare_and_swap(&(node_entry.cache_entry), old_entry, new_entry)) {
@@ -126,8 +155,8 @@ next:
     return;
   }
   // 2.2 internal level
-  else {    //一直要找到最下面一层的节点
-    auto& node_entry = cache_map[partial];
+  else {    
+    auto& node_entry = cache_map[partial];  //不是最后一层
     if (node_entry.next == nullptr) {
       auto next_node = new CacheNode(byte_array, idx + 1, new_entry);
       auto ret_node = __sync_val_compare_and_swap(&(node_entry.next), 0UL, next_node);
@@ -267,14 +296,14 @@ next:
   // 2. parse_node
   auto& cache_map = node->records;
   auto partial = byte_array[idx];   //共同前缀的后一个字节 
-  if(parent && parent_type) //上一个entry是缓冲节点  看一下再上一层的slot中是不是叶节点 是叶节点直接返回？
+/*  if(parent && parent_type) //上一个entry是缓冲节点  看一下再上一层的slot中是不是叶节点 是叶节点直接返回？
   {
     for(int i =0;i<(int)parent->records.size();i++)
     {
       if(parent->records[i].partial == partial && parent->records[i].node_type == 0) return !ret.empty();
     }
   }
-
+*/
   CacheMap::const_iterator r_entry = cache_map.find(partial);  //直接map过去的
   if (r_entry != cache_map.end()) {
     auto cache_entry = (CacheEntry *)r_entry->second.cache_entry;

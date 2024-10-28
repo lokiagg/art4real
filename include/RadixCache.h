@@ -46,7 +46,8 @@ public:
 
   static CacheHeader* split_header(const CacheHeader* old_hdr, int diff_idx) {
     auto new_hdr = new CacheHeader();
-    for (int i = diff_idx + 1; i < (int)old_hdr->partial.size(); ++ i) new_hdr->partial.push_back(old_hdr->partial[i]);
+    for (int i = diff_idx + 1; i < (int)old_hdr->partial.size(); ++ i)
+     new_hdr->partial.push_back(old_hdr->partial[i]);
     new_hdr->depth = old_hdr->depth + diff_idx + 1;
     return new_hdr;
   }
@@ -79,14 +80,16 @@ public:
 
   // insert leaf node
   CacheNode(const std::vector<uint8_t>& byte_array, int start, CacheEntry* new_entry) {
-    header = new CacheHeader(byte_array, start, byte_array.size() - start - 1);
+    if(new_entry->node_type == 1) header = new CacheHeader(byte_array, start, 0);
+    else header = new CacheHeader(byte_array, start, byte_array.size() - start - 1);
     records[byte_array.back()] = CacheNodeValue(new_entry, nullptr);
   }
 
   // split internal node
   CacheNode(const std::vector<uint8_t>& byte_array, int start, int partial_len,
             uint8_t partial_1, CacheNode* next_node, uint8_t partial_2, CacheEntry* new_entry, CacheNode* &nested_node) {
-    header = new CacheHeader(byte_array, start, partial_len);
+    if(new_entry->node_type == 1) header = new CacheHeader(byte_array, start, 0);
+    else header = new CacheHeader(byte_array, start, byte_array.size() - start - 1);
     if (partial_1 == partial_2) {  // split for insert new_entry at old header
       records[partial_1] = CacheNodeValue(new_entry, next_node);
     }
@@ -172,8 +175,9 @@ class RadixCache {
 public:
   RadixCache(int cache_size, DSM *dsm);
 
-  void add_to_cache(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr);
+  void add_to_cache_new(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry* &entry_ptr);
 //  void add_buffer_to_cache(const Key& k, const InternalBuffer* p_node, const GlobalAddress &node_addr);
+void add_to_cache(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr);
   void change_node_type(CacheEntry*& entry_ptr){entry_ptr->node_type = 0;}
 
   bool search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& parent_parent_type,int& entry_idx,CacheEntry**& cache_entry_parent_ptr,CacheEntry* & cache_entry_parent,int& first_buffer);

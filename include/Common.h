@@ -103,7 +103,7 @@ constexpr int64_t kPerThreadRdmaBuf  = rdmaBufferSize * define::GB / MAX_APP_THR
 constexpr int64_t kPerCoroRdmaBuf    = kPerThreadRdmaBuf / MAX_CORO_NUM;
 
 // Cache (MB)
-constexpr int kIndexCacheSize = 8192;
+constexpr int kIndexCacheSize = 600;
 
 // KV
 constexpr uint32_t maxkeyLen = 128;   
@@ -126,7 +126,7 @@ constexpr uint32_t LeafCntBit      = 7;
 constexpr uint32_t nodeTypeNumBit  = 5;
 constexpr uint32_t mnIdBit         = 8;
 constexpr uint32_t offsetBit       = 48 - ALLOC_ALLIGN_BIT;
-constexpr uint32_t hPartialLenMax  = 6;
+constexpr uint32_t hPartialLenMax  = 5;
 
 //Buffer ndoe
 constexpr uint32_t partial_len  = 2;
@@ -137,7 +137,7 @@ constexpr uint32_t leaf_type  = 5;
 //constexpr uint32_t fp  = 2;
 constexpr uint32_t allocationBufferSize = 8 + 8 +  256* 8 + 1;
 constexpr uint32_t allocAlignBufferSize = ROUND_UP(allocationBufferSize, ALLOC_ALLIGN_BIT);
-
+constexpr uint8_t  threshold = 120;
 
 
 

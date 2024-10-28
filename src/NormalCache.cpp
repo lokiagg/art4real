@@ -28,6 +28,21 @@ void NormalCache::add_to_cache(const Key& k, int node_type,const InternalPage* p
   return;
 }
 
+void NormalCache::add_to_cache_new(const Key& k, int node_type,const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry * &entry_ptr) {
+  auto depth = p_node->hdr.depth - 1;
+
+  std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);
+  for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);
+
+  auto new_entry = new CacheEntry(p_node,node_type ,node_addr);
+  entry_ptr = new_entry;
+  _insert(byte_array, new_entry);
+  if (free_size < 0) {
+    _evict();
+  }
+  return;
+}
+
 void NormalCache::_insert(const CacheKey& byte_array, CacheEntry* new_entry) {
   if (cache_map.find(byte_array) == cache_map.end()) {
     keys.push(byte_array);
