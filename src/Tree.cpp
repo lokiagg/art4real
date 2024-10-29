@@ -2257,7 +2257,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 
       int j = 0;
       for(auto& be : vec){
-      auto bnode_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();
+      auto bnode_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();  //可能在这里被覆盖掉了
       new_bnodes[new_bnode_num] = new (bnode_buffer)InternalBuffer();
       if(be == -1)
       {
@@ -2269,6 +2269,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
         new_bnodes[new_bnode_num]->records[j].val = old_b.records[be].val; // 这里意思是第 i 个叶子的地址
         new_bnodes[new_bnode_num]->records[j].partial = get_partial(leaves[be].get_key(),depth); 
       }
+      assert(new_bnodes[new_bnode_num]->records[j].packed_addr.offset !=0);
       j++;
       }
       new_bnodes[new_bnode_num]->rev_ptr.val = GADD(bnode_addrs[mp.size()],sizeof(BufferHeader)+sizeof(GlobalAddress)+new_bnode_num*sizeof(BufferEntry)).val;  
