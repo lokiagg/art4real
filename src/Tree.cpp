@@ -2111,6 +2111,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   if(!acquire_lock) return false;
 
   depth ++;
+  InternalBuffer old_b = *bnode;
   int leaf_cnt = 256;
   int leaf_entry_cnt[256];  //记录在bnode 的槽里面partialkey一致的叶子的数量
   std::vector<RdmaOpRegion> rs;
@@ -2265,7 +2266,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
         new_bnodes[new_bnode_num]->records[j].val = leaf_b_entry.val;
       }
       else{
-        new_bnodes[new_bnode_num]->records[j].val = bnode->records[be].val; // 这里意思是第 i 个叶子的地址
+        new_bnodes[new_bnode_num]->records[j].val = old_b.records[be].val; // 这里意思是第 i 个叶子的地址
         new_bnodes[new_bnode_num]->records[j].partial = get_partial(leaves[be].get_key(),depth); 
       }
       j++;
