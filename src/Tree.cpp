@@ -2139,6 +2139,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   leaf_addr = dsm->alloc(sizeof(Leaf_kv));
 
 
+
   Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
   int leaf_no_repeat_cnt = 0;
   //读到了leaves_buffer
@@ -2167,7 +2168,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   int empty_slot = 256 - s.size() - (update_flag == false);
   if(empty_slot > define::threshold )
   {
-
+    GlobalAddress new_old_page_addr = dsm->alloc(sizeof(InternalBuffer)); //还是搞成异地写 得多一次cas
     auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();
     InternalBuffer * old_page;
     old_page = new (old_page_buffer) InternalBuffer();
@@ -2192,7 +2193,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     memset(rs_write,0,sizeof(RdmaOpRegion)*(write_num));
     {
       rs_write[0].source     = (uint64_t)old_page_buffer;
-      rs_write[0].dest       = old_e.addr();  //是最后一个地址
+      rs_write[0].dest       = new_old_page_addr;  //是最后一个地址
       rs_write[0].size       = sizeof(InternalBuffer);
       rs_write[0].is_on_chip = false;
     //  dsm->write((const char*)old_bnode_buffer, e_ptr, sizeof(InternalBuffer), false, cxt);
@@ -2206,7 +2207,23 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     }
         dsm->write_batches_sync(rs_write, write_num, cxt, coro_id);
         buffer_type_change = false;
-        return true;
+
+    //在搞一个cas
+    auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
+    InternalEntry new_entry(old_e);
+  //  new (cas_node_type_buffer) InternalEntry(new_entry);
+    new_entry.packed_addr = {new_old_page_addr.nodeID, new_old_page_addr.offset >> ALLOC_ALLIGN_BIT};
+    // assert(new_entry.packed_addr.mn_id == 0);
+    bool res =dsm->cas_sync(p_ptr, (uint64_t)old_e, (uint64_t)new_entry, cas_buffer, cxt);
+    if(res) 
+     {   //先失效父节点
+         if(from_cache)
+        {
+          index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
+        }
+        index_cache->add_to_cache(k, 0,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+     }
+    return false;
   }
   else
   {
