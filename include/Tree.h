@@ -40,7 +40,7 @@ public:
   Tree
 */
 using GenFunc = std::function<RequstGen *(DSM*, Request*, int, int, int)>;
-#define MAX_FLAG_NUM 15
+#define MAX_FLAG_NUM 16
 enum {
   FIRST_TRY,//尝试第一次
   CAS_Internal_NULL,//cas 内部节点 空槽失败
