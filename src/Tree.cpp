@@ -210,7 +210,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 
   //search from cache
   auto search_from_cache_start = std::chrono::high_resolution_clock::now();
-/*
+
   from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
   auto search_from_cache_stop = std::chrono::high_resolution_clock::now();
   auto search_from_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
@@ -259,11 +259,11 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
     bp.val = p.val;
     if(!first_buffer) assert(cache_entry_parent !=0);  //只要是从cache拿到的一定会拿到一个父节点
   }
-  else {*/
+  else {
     p_ptr = root_ptr_ptr;
     p = get_root_ptr(cxt, coro_id);
     depth = 0;
-      //  }
+       }
   if(buffer_from_cache_flag) bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
 
   depth ++;  
