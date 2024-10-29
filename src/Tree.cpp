@@ -80,7 +80,9 @@ uint64_t in_place_update_time[MAX_APP_THREAD]; //就地更新时间
 thread_local CoroCall Tree::worker[MAX_CORO_NUM];
 thread_local CoroCall Tree::master;
 thread_local CoroQueue Tree::busy_waiting_queue;
- std::atomic<int> cnt = 0;
+std::atomic<int> cnt = 0;
+std::atomic<int> search_cnt = 0;
+
 
 
 
@@ -2646,6 +2648,7 @@ bool Tree::insert_behind(const Key &k, Value &v, GlobalAddress p_ptr,int depth, 
 
 bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///设置上限
   assert(dsm->is_register());
+  int cnt_res=search_cnt.fetch_add(1);
   bool search_res = false;
   // traversal
   GlobalAddress p_ptr;
