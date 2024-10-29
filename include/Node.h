@@ -63,7 +63,10 @@ public:
  
   const Key& get_key() const { return key; }
   Value get_value() const { return value; }
-  bool is_valid(const GlobalAddress& p_ptr, bool from_cache) { return valid && (!from_cache || p_ptr == rev_ptr); }
+  bool is_valid(const GlobalAddress& p_ptr, bool from_cache) {
+    //  return valid && (!from_cache || p_ptr == rev_ptr);
+    return valid;
+      }
   bool is_consistent() const 
   {
     if (front_version == rear_version) return true;
