@@ -263,7 +263,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
     p_ptr = root_ptr_ptr;
     p = get_root_ptr(cxt, coro_id);
     depth = 0;
-       }
+        }
   if(buffer_from_cache_flag) bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
 
   depth ++;  
@@ -520,12 +520,12 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
 
 
         InternalEntry old_p = p;
-        bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,entry_ptr_ptr,entry_ptr,from_cache,p, p_ptr,buffer_type_change,cxt,coro_id);
-        if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
-        {
-          bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
-          index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
-        }
+        bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,from_cache,p, p_ptr,buffer_type_change,cxt,coro_id);
+        // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
+        // {
+          // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
+          // index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
+        // }
         if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
         // if(from_cache)  这里为啥还要失效一次
@@ -2139,7 +2139,6 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   leaf_addr = dsm->alloc(sizeof(Leaf_kv));
 
 
-
   Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
   int leaf_no_repeat_cnt = 0;
   //读到了leaves_buffer
@@ -2217,9 +2216,14 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     bool res =dsm->cas_sync(p_ptr, (uint64_t)old_e, (uint64_t)new_entry, cas_buffer, cxt);
     if(res) 
      {   //先失效父节点
-         if(from_cache)
+        //  if(from_cache)
+        // {
+          // index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
+        // }
+        // if(!from_cache)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
         {
-          index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
+          // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
+          index_cache->invalidate(entry_ptr_ptr, entry_ptr);
         }
         index_cache->add_to_cache(k, 0,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
      }
@@ -2315,7 +2319,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     // assert(res == true && new_entry.child_type == 2);
 
     //先失效 再加
-    if(from_cache)
+    // if(from_cache)
     {
       index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
     }
@@ -2838,6 +2842,7 @@ next:
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_range_buffer(); 
     is_valid = read_leaves(leaf_addrs, leaf_buffer,leaf_cnt,leaves_ptr,buffer_from_cache_flag,cxt,coro_id);
 
+    // if(0) {
     if (!is_valid) {
       // re-read leaf entry
       if (from_cache) {
