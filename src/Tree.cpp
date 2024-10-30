@@ -14,6 +14,8 @@
 #include <fstream>
 #include <chrono>
 
+// #define USE_CN_CACHE
+
 double cache_miss[MAX_APP_THREAD];
 double cache_hit[MAX_APP_THREAD];
 uint64_t lock_fail[MAX_APP_THREAD];
@@ -212,7 +214,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 
   //search from cache
   auto search_from_cache_start = std::chrono::high_resolution_clock::now();
-/*
+#ifdef USE_CN_CACHE
   from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
   auto search_from_cache_stop = std::chrono::high_resolution_clock::now();
   auto search_from_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
@@ -261,11 +263,14 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
     bp.val = p.val;
     if(!first_buffer) assert(cache_entry_parent !=0);  //只要是从cache拿到的一定会拿到一个父节点
   }
-  else {*/
+  else {
+#endif
     p_ptr = root_ptr_ptr;
     p = get_root_ptr(cxt, coro_id);
     depth = 0;
-        //  }
+#ifdef USE_CN_CACHE
+  }
+#endif
   if(buffer_from_cache_flag) bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
 
   depth ++;  
@@ -339,10 +344,12 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     }
 
     bhdr=bp_node->hdr;
+#ifdef USE_CN_CACHE
     if (depth == bhdr.depth && !from_cache) {   //疯狂加入cache cache会炸掉 加还是得加
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
       index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
+#endif
 
     for (int i = 0; i < bhdr.partial_len; ++ i) {    //缓冲节点分裂   新建一个共同前缀的内部节点
     if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {     //
@@ -595,11 +602,13 @@ l1:
   if (from_cache && !type_correct) {  // invalidate the out dated node type
       index_cache->invalidate(entry_ptr_ptr, entry_ptr);
   }
+#ifdef USE_CN_CACHE
   if (depth == hdr.depth && !from_cache) {
  //   printf("thread  %d 4 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)p_node->hdr);
     index_cache->add_to_cache_new(k, 0,p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)),cache_entry_parent);
     parent_add_to_cache_flag = true;
   }
+#endif
 //  if(hdr.depth == 0) goto insert_finish;
   for (int i = 0; i < hdr.partial_len; ++ i) {
     if (get_partial(k, hdr.depth + i) != hdr.partial[i]) {
@@ -772,10 +781,12 @@ else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲�
     } 
 
     bhdr=bp_node->hdr;
+#ifdef USE_CN_CACHE
     if (depth == bhdr.depth) {
     //      printf("thread  %d 5 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
     index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(bp.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
+#endif
 
     for (int i = 0; i < bhdr.partial_len; ++ i) {    //缓冲节点分裂   新建一个共同前缀的内部节点
     if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {
@@ -947,10 +958,12 @@ else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲�
   if (from_cache && !type_correct) {  // invalidate the out dated node type
     index_cache->invalidate(entry_ptr_ptr, entry_ptr);
   }
+#ifdef USE_CN_CACHE  
   if (depth == hdr.depth) {
       //    printf("thread  %d 6 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)p_node->hdr);
     index_cache->add_to_cache(k, 0,p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
   }
+#endif  
 
 
   for (int i = 0; i < hdr.partial_len; ++ i) {
@@ -1190,11 +1203,13 @@ bool Tree::out_of_place_write_buffer_n_leaf(const Key &k, Value &v, int depth, G
     }
     dsm->write_batches_sync(rs, 2, cxt, coro_id);
     bool res = dsm->cas_sync(p_ptr, (uint64_t)p, (uint64_t)new_e, ret_buffer, cxt);
+#ifdef USE_CN_CACHE    
     if(res)
     {
     //  printf("thread  %d 2 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)buffer->hdr);
       index_cache->add_to_cache(k, 1,(InternalPage*)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
+#endif
 
     delete[] rs;
     return res;
@@ -1554,6 +1569,7 @@ bool Tree::out_of_place_write_node(const Key &k, Value &v,const int depth_i, Glo
     dsm->cas(old_e.addr(), e_ptr, GADD(node_addrs[new_node_num - 1], sizeof(GlobalAddress) + sizeof(Header)), cas_buffer, false, cxt);
   }
 
+#ifdef USE_CN_CACHE
   if (res) {   //将内部节点和缓冲节点都加入cache
     for (int i = 0; i < new_node_num; ++ i) {
     //  printf("thread  %d 9 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(node_pages[i]->hdr));
@@ -1562,6 +1578,7 @@ bool Tree::out_of_place_write_node(const Key &k, Value &v,const int depth_i, Glo
 //printf("thread  %d 10 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(buffernode->hdr));
     index_cache->add_to_cache(k, 1,(InternalPage *)buffernode, GADD(bnode_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
   }
+#endif  
 
   // free
   delete[] rs; delete[] node_pages; delete[] node_addrs;
@@ -1678,6 +1695,7 @@ bool Tree::out_of_place_write_node_from_buffer(const Key &k, Value &v,const int 
     dsm->cas(old_e.addr(), e_ptr, GADD(node_addrs[new_node_num - 1], sizeof(GlobalAddress) + sizeof(Header)), cas_buffer, false, cxt);
   }
 
+#ifdef USE_CN_CACHE
   if (res) {   //将内部节点和缓冲节点都加入cache
     for (int i = 0; i < new_node_num; ++ i) {
        //     printf("thread  %d 13 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(node_pages[i]->hdr));
@@ -1686,6 +1704,7 @@ bool Tree::out_of_place_write_node_from_buffer(const Key &k, Value &v,const int 
  //   printf("thread  %d 14 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(buffernode->hdr));
     index_cache->add_to_cache(k, 1,(InternalPage *)buffernode, GADD(bnode_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
   }
+#endif
 
   // free
   delete[] rs; delete[] node_pages; delete[] node_addrs;
@@ -2083,20 +2102,24 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
 
   // assert(res == true && new_entry.child_type == 2);
 
+#ifdef USE_CN_CACHE
   //先失效 再加
   if(from_cache)
   {
     index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
   }
    index_cache->add_to_cache(k, 0,(InternalPage*)old_page, GADD(bnode_addrs[new_bnode_num], sizeof(GlobalAddress) + sizeof(BufferHeader)));
+#endif
 
 // old_e = *(InternalEntry*) cas_node_type_buffer;
 if(res)
 {
+#ifdef USE_CN_CACHE
    for (int i = 0; i < new_bnode_num; ++ i) {
       // printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
        index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
    }
+#endif
   return true;
 }
 //old_e = *(InternalEntry*) cas_node_type_buffer;
@@ -2224,11 +2247,13 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
           // index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
         // }
         // if(!from_cache)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
+#ifdef USE_CN_CACHE
         {
           // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
           index_cache->invalidate(entry_ptr_ptr, entry_ptr);
         }
         index_cache->add_to_cache(k, 0,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+#endif
      }
     return false;
   }
@@ -2324,18 +2349,22 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 
     //先失效 再加
     // if(from_cache)
+#ifdef USE_CN_CACHE
     {
       index_cache->invalidate(entry_ptr_ptr, entry_ptr);  //首先是invalid 父节点 然后在外面invalid缓冲节点本身
     }
     index_cache->add_to_cache(k, 0,(InternalPage*)old_page, GADD(bnode_addrs[new_bnode_num], sizeof(GlobalAddress) + sizeof(BufferHeader)));
+#endif
 
   // old_e = *(InternalEntry*) cas_node_type_buffer;
   if(res)
   {
+#ifdef USE_CN_CACHE
     for (int i = 0; i < new_bnode_num; ++ i) {
         // printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
         index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
+#endif
     old_e = new_entry;  //重新赋值 新增
     buffer_type_change = true;
     return true;
@@ -2576,10 +2605,12 @@ bool Tree::out_of_place_write_buffer_node_from_buffer(const Key &k, Value &v, in
   // index_cache->add_to_cache(k, 1,(InternalPage*)old_bnode, GADD(e_ptr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
 if(res)
 {
+#ifdef USE_CN_CACHE
    for (int i = 0; i < new_bnode_num; ++ i) {
       printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
        index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
    }
+#endif
   return true;
 }
 //old_e = *(BufferEntry*) cas_node_type_buffer;
@@ -2630,7 +2661,9 @@ bool Tree::insert_behind(const Key &k, Value &v, GlobalAddress p_ptr,int depth, 
 
     if (res) {
       inserted_idx = slot_id;
+#ifdef USE_CN_CACHE
       index_cache->add_to_cache(k, 1,(InternalPage *)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+#endif
       return true;
     }
     // cas fail, check
@@ -2791,11 +2824,12 @@ next:
 
     //2.1 check partial key
     bhdr=bp_node->hdr;
+#ifdef USE_CN_CACHE
      if (depth == hdr.depth && !buffer_from_cache_flag) {
           // printf("thread  %d 18 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(bp_node->hdr));
      index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
      }
-
+#endif
     for (int i = 0; i < bhdr.partial_len; ++ i) {      //查看部分键前n个字节
     if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {
       search_res = false;
