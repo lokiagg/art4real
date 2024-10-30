@@ -244,10 +244,10 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
         p_ptr = GADD(cache_entry_parent->addr,sizeof(InternalEntry)*entry_idx);
         p = cache_entry_parent->records[entry_idx];
         parent_type = cache_entry_parent->node_type;
-        depth = cache_entry_parent->depth;
         node_ptr = cache_entry_parent->addr;
         cache_entry_buffer = entry_ptr;
         cache_entry_buffer_ptr = entry_ptr_ptr; 
+        depth = cache_entry_buffer->depth;
         entry_ptr = cache_entry_parent;
         entry_ptr_ptr = cache_entry_parent_ptr;
         buffer_from_cache_flag = true;
@@ -325,10 +325,12 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
       
       bp_node = (InternalBuffer *)buffer_buffer;
       if (!is_valid) {  // node deleted || outdated cache entry in cached node
+#ifdef USE_CN_CACHE
         if (buffer_from_cache_flag) {
           // index_cache->invalidate(entry_ptr_ptr, entry_ptr); //invalid 父节点 失效了有必要去失效父节点吗 没必要失效父节点  只需要更改 父节点的某个槽就行啦
           index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
         }
+#endif
         // re-read node entry
         auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
         dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
@@ -379,7 +381,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
-    auto loop_start = std::chrono::high_resolution_clock::now();
+    // auto loop_start = std::chrono::high_resolution_clock::now();
 /*    GlobalAddress leaf_addrs[256];
     GlobalAddress leaves_ptr[256];
     memset(leaf_addrs,0,256*sizeof(GlobalAddress));
@@ -476,11 +478,13 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
            be_ptr=GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader) + i * sizeof(BufferEntry));
            auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
            bool res = out_of_place_write_leaf(k,v,depth,leaf_addr,leaf_type ,klen,vlen,be_ptr,old_be,cas_buffer,cxt,coro_id);  //直接写空槽
+#ifdef USE_CN_CACHE
            if(buffer_from_cache_flag && res && from_cache)
            {
               auto new_e = BufferEntry(0,get_partial(k,depth-1),1,leaf_type,leaf_addr); 
             cache_entry_buffer->records[i].val = new_e.val;
            }
+#endif
            if(res) 
            {
             buffer_empty_entry[dsm->getMyThreadID()] ++;
@@ -535,7 +539,9 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
           // index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
         // }
+#ifdef USE_CN_CACHE
         if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
+#endif        
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
         // if(from_cache)  这里为啥还要失效一次
         // {
@@ -584,10 +590,11 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     update_retry_flag[dsm->getMyThreadID()]=1;
 
     // invalidate the old node cache
+#ifdef USE_CN_CACHE
     if (from_cache) {
         index_cache->invalidate(entry_ptr_ptr, entry_ptr);
     }
-
+#endif
     // re-read node entry
     auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
     dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
@@ -599,10 +606,10 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
 l1:
   // 3.2 Check header
   hdr = p_node->hdr;
+#ifdef USE_CN_CACHE
   if (from_cache && !type_correct) {  // invalidate the out dated node type
       index_cache->invalidate(entry_ptr_ptr, entry_ptr);
   }
-#ifdef USE_CN_CACHE
   if (depth == hdr.depth && !from_cache) {
  //   printf("thread  %d 4 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)p_node->hdr);
     index_cache->add_to_cache_new(k, 0,p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)),cache_entry_parent);
@@ -626,9 +633,11 @@ l1:
         goto next;
       }
       // invalidate cache node due to outdated cache entry in cache node
+#ifdef USE_CN_CACHE
       if (from_cache) {
         index_cache->invalidate(entry_ptr_ptr, entry_ptr);
       }
+#endif
       // udpate cas header. Optimization: no need to snyc; mask node_type
       auto header_buffer = (dsm->get_rbuf(coro_id)).get_header_buffer();
       auto new_hdr = Header::split_header(hdr, i);
@@ -638,7 +647,7 @@ l1:
       goto insert_finish;
     }
   }
-      assert(hdr.depth !=0);
+      // assert(hdr.depth !=0);
   depth = hdr.depth + hdr.partial_len;
 
   node_ptr = GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header));
@@ -702,9 +711,11 @@ l1:
     
     auto next_type = num_to_node_type(slot_id);
     cas_node_type(next_type, p_ptr, p, hdr, cxt, coro_id);
+#ifdef USE_CN_CACHE
     if (from_cache) {  // cache is outdated since node type is changed
       index_cache->invalidate(entry_ptr_ptr, entry_ptr);
     }
+#endif
     internal_extend_empty_entry[dsm->getMyThreadID()];
         insert_type[dsm->getMyThreadID()] = 2;
     goto insert_finish;
@@ -2716,7 +2727,7 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
   int parent_parent_type = 0;
   int buffer_from_cache_flag = 0;
   int first_buffer = 0;
-
+#ifdef USE_CN_CACHE
   from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
   if (from_cache) { // cache hit
 
@@ -2765,6 +2776,11 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
     depth = 0;
        }
   if(buffer_from_cache_flag) bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
+#else
+    p_ptr = root_ptr_ptr;
+    p = get_root_ptr(cxt, coro_id);
+    depth = 0;
+#endif
 
 
   depth ++;
@@ -2808,10 +2824,12 @@ next:
       
       bp_node = (InternalBuffer *)buffer_buffer;
       if (!is_valid) {  // node deleted || outdated cache entry in cached node
+#ifdef USE_CN_CACHE
         if (from_cache) {
           // index_cache->invalidate(entry_ptr_ptr, entry_ptr); //invalid 父节点 父节点其实没有必要失效吧
           index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
         }
+#endif
         // re-read node entry
         auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
         dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
@@ -2884,9 +2902,11 @@ next:
     // if(0) {
     if (!is_valid) {
       // re-read leaf entry
+#ifdef USE_CN_CACHE
       if (from_cache) {
-        index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer);
+        // index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer);  其实是没必要失效的？
       }
+#endif
       auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
       dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
       p = *(InternalEntry *)entry_buffer;
@@ -2920,9 +2940,11 @@ if(p.child_type == 2)
 
   if (!is_valid) {  // node deleted || outdated cache entry in cached node
     // re-read node entry
+#ifdef USE_CN_CACHE
     if (from_cache) {
       index_cache->invalidate(entry_ptr_ptr, entry_ptr);
     }
+#endif
     auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
     dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
     p = *(InternalEntry *)entry_buffer;
