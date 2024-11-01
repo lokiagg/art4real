@@ -56,6 +56,7 @@ extern uint64_t MN_datas[MAX_APP_THREAD][MEMORY_NODE_NUM];
 extern uint64_t retry_time[MAX_APP_THREAD];
 extern uint64_t insert_time[MAX_APP_THREAD];
 
+extern int depth_test[MAX_APP_THREAD];
 
 extern uint64_t insert_cnt[MAX_APP_THREAD];
 extern uint64_t internal_empty_entry[MAX_APP_THREAD];
@@ -569,6 +570,15 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < MAX_APP_THREAD; ++i) {
       in_place_update_cnt += in_place_update[i]; 
     }
+
+    uint64_t highest_depth = 0;
+    for(int i =0;i<MAX_APP_THREAD;i++)
+    {
+      if(depth_test[i] > highest_depth )
+      {
+        highest_depth = depth_test[i];
+      }
+    }
     
 
     
@@ -630,7 +640,8 @@ printf("total %lu", all_retry_cnt[0]);
       if(dsm->getMyNodeID()==0) printf("MN %d all throughput %.3f \n",j,MN_cluster_tp/1000.0);
      }
     if (dsm->getMyNodeID() == 0)  printf("cluster throughput %.3f Mops\n", cluster_tp / 1000.0);
-    if (dsm->getMyNodeID() == 0)  printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64"",insert,internal_empty,internal_extend_empty,internal_header_split_cnt,buffer_empty,buffer_header_split_cnt,buffer_reconstruct_cnt,in_place_update_cnt);
+    if (dsm->getMyNodeID() == 0)  printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64"\n",insert,internal_empty,internal_extend_empty,internal_header_split_cnt,buffer_empty,buffer_header_split_cnt,buffer_reconstruct_cnt,in_place_update_cnt);
+    if (dsm->getMyNodeID() == 0)  printf("art depth is %d " PRIu64"\n",highest_depth);
     for(int j=0;j<MEMORY_NODE_NUM;j++)
       {
         MN_tp[j]=MN_tps[j];

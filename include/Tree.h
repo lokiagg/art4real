@@ -78,6 +78,7 @@ public:
   InternalEntry get_root_ptr(CoroContext *cxt, int coro_id);
 
 private:
+  int find_next_diff(Leaf_kv* leaves, int leaf_cnt, int depth);
   void coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int coro_id);
   void coro_master(CoroYield &yield, int coro_cnt);
 

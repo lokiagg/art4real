@@ -3,8 +3,8 @@
 start_time=$(date +%s)
 
 for WORKLOAD_TYPE in la a b c d f g h; do
-  python3 gen_workload.py workload${WORKLOAD_TYPE} randint small
-#  python3 gen_workload.py workload${WORKLOAD_TYPE} email small
+#  python3 gen_workload.py workload${WORKLOAD_TYPE} randint small
+  python3 gen_workload.py workload${WORKLOAD_TYPE} email small
 done
 
 #for WORKLOAD_TYPE in e; do

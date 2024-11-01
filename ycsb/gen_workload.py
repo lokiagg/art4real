@@ -38,7 +38,7 @@ if (len(sys.argv) != 4) :
 workload = sys.argv[1]
 key_type = sys.argv[2]
 
-ycsb_dir = 'YCSB/'
+ycsb_dir = '~/../gloki/art4real/ycsb/YCSB/'
 workload_dir = f'{sys.argv[3]}_workload_spec/'
 output_dir= 'workloads/'
 

@@ -144,20 +144,20 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   int leaf_type=-1;
   int leaf_size =0;
   int klen=128,vlen=1024;   //应该从后往前找！
-/*  {
-  int i=127,j=1023;
-  while(k[i--] == 0) klen --;
-  while(v[j--] == 0) vlen --;
-  if(klen<=8) {leaf_type = 1; leaf_size = 8;}
-  else if ( 8< klen&& klen <=16) {leaf_type = 5;leaf_size = 16;}
-  else if (16<klen && klen <= 32 ) {leaf_type = 9;leaf_size = 32;}
-  else if (32 <klen && klen <=64 ) {leaf_type = 13;leaf_size = 64;}
-  else {leaf_type = 17;leaf_size = 128;}
-  if(vlen<=16) {leaf_type += 1;leaf_size += 16;}
-  else if ( 16< vlen&& vlen <=256) {leaf_type += 2; leaf_size += 256;}
-  else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
-  else {leaf_type += 4;leaf_size += 1024;}
-  }*/
+  // {
+  // int i=127,j=1023;
+  // while(k[i--] == 0) klen --;
+  // while(v[j--] == 0) vlen --;
+  // if(klen<=8) {leaf_type = 1; leaf_size = 8;}
+  // else if ( 8< klen&& klen <=16) {leaf_type = 5;leaf_size = 16;}
+  // else if (16<klen && klen <= 32 ) {leaf_type = 9;leaf_size = 32;}
+  // else if (32 <klen && klen <=64 ) {leaf_type = 13;leaf_size = 64;}
+  // else {leaf_type = 17;leaf_size = 128;}
+  // if(vlen<=16) {leaf_type += 1;leaf_size += 16;}
+  // else if ( 16< vlen&& vlen <=256) {leaf_type += 2; leaf_size += 256;}
+  // else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
+  // else {leaf_type += 4;leaf_size += 1024;}
+  // }
   int cnt_res=cnt.fetch_add(1);
   uint64_t k_v = key2int(k);
 
@@ -172,6 +172,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   BufferEntry bp;
   GlobalAddress node_ptr;  // node address(excluding header)
   int depth;
+  int level = 1;
   int retry_flag = FIRST_TRY;
 //  uint32_t fp = generateFingerprint(k);
 
@@ -668,6 +669,7 @@ l1:
       parent_type = 0;
       if(depth > 1) entry_idx =i;
       depth ++;
+      level ++;
       goto next;  // search next level
     }
   }
@@ -1093,7 +1095,7 @@ insert_finish:
   read_buffer_node_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_buffer_node_time_this;
   read_internal_node_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_internal_node_time_this;
   read_leaves_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_leaves_time_this;
-  depth_test[dsm->getMyThreadID()] = depth;
+  depth_test[dsm->getMyThreadID()] = std::max(level+1,depth_test[dsm->getMyThreadID()]);
 
 #ifdef TREE_TEST_ROWEX_ART
   if (!is_update) unlock_node(node_ptr, cxt, coro_id);
@@ -2137,6 +2139,22 @@ if(res)
 return false;
 }
 
+int Tree::find_next_diff(Leaf_kv* leaves, int leaf_cnt, int depth){
+  // 找到公共前缀的长度
+  int res = 0;
+  assert(depth > 0);
+  for(int i = depth; ; i++){
+    char cur = get_partial(leaves[0].key,i);
+    for(int j = 1; j < leaf_cnt; j ++){
+      auto l = leaves[j];
+      if(i > 128 || get_partial(l.key,i) != cur)
+        return i - depth;
+    }
+  }
+  return 0;
+}
+
+
 bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,bool from_cache,InternalEntry& old_e, GlobalAddress p_ptr,bool &buffer_type_change ,CoroContext *cxt, int coro_id) {
   //先获取锁 再修改 否则不修改  搞异地更新吧 ！！！！！
   static const uint64_t lock_cas_offset = ROUND_DOWN(STRUCT_OFFSET(InternalBuffer, lock_byte), 3);  //8B对齐
@@ -2153,9 +2171,9 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   std::vector<RdmaOpRegion> rs;
   int new_bnode_num = 0;
   int leaf_flag = 0; //叶节点的部分键是否重复
-  uint8_t new_leaf_partial = get_partial(k,depth-1);
   BufferEntry *new_leaf_be;
   GlobalAddress *bnode_addrs; 
+
   // leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
   auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
   for(int i =0;i<256;i++)  //把所有叶子读过来
@@ -2183,6 +2201,10 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   {
     leaves[i] = *(Leaf_kv *)(leaves_buffer + i * define::allocAlignPageSize);
   }
+
+  
+
+  uint8_t new_leaf_partial = get_partial(k,depth-1);
   std::set<Key> s;
   std::map<char,std::vector<int>> mp;
   bool update_flag = false;
@@ -2270,22 +2292,57 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   }
   else
   {
+    int partial_len = find_next_diff(leaves, leaf_cnt, depth - 1);
+
+    int new_node_num = partial_len / (define::hPartialLenMax + 1) + 1;
+
+    // allocate node
+    GlobalAddress *node_addrs = new GlobalAddress[new_node_num];
+    dsm->alloc_nodes(new_node_num, node_addrs);
+    NodeType nodes_type = num_to_node_type(2);
+    InternalPage ** node_pages = new InternalPage* [new_node_num];
+    auto rev_ptr = p_ptr;
+    for (int i = 0; i < new_node_num -1; ++ i) {
+      auto node_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
+  //   printf("internal node buffer:  %d\n",node_buffer);
+  // 这里的depth也有可能不对
+      node_pages[i] = new (node_buffer) InternalPage(k, define::hPartialLenMax, depth-1, nodes_type, rev_ptr);
+      assert(node_pages[i]->hdr.depth != 0);
+      node_pages[i]->records[0] = InternalEntry(get_partial(k, depth-1 + define::hPartialLenMax),
+                                                2, node_addrs[i + 1]);
+      rev_ptr = GADD(node_addrs[i], sizeof(GlobalAddress) + sizeof(Header));
+      partial_len -= define::hPartialLenMax + 1;
+      depth += define::hPartialLenMax + 1;
+    }
+    std::set<Key> s1;
+    std::map<char,std::vector<int>> mp1;
+    new_leaf_partial = get_partial(k,depth-1);
+    for(int i = 255; i >= 0; i --){
+      Key& tmp_k = leaves[i].key;
+      char c = get_partial(leaves[i].key,depth-1); // 不太确定这里拿到的是不是下一个字节
+      if(s1.find(tmp_k) == s1.end()){
+        mp1[c].push_back(i);
+        s1.insert(tmp_k);
+      }
+    }
     // BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
-    if(!update_flag) mp[new_leaf_partial].push_back( -1);
-    bnode_addrs = new GlobalAddress[mp.size()+1];
-    NodeType old_page_type = num_to_node_type((int)mp.size());
+    if(!update_flag) mp1[new_leaf_partial].push_back( -1);
+    bnode_addrs = new GlobalAddress[mp1.size()+1];
+    NodeType old_page_type = num_to_node_type((int)mp1.size());
     auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
-    InternalPage * old_page;
-    old_page = new (old_page_buffer) InternalPage(k,0,bnode->hdr.depth,old_page_type,bnode->rev_ptr);
+    // 这里的深度貌似不对
+    node_pages[new_node_num-1] = new (old_page_buffer) InternalPage(k,partial_len,depth-1,old_page_type,rev_ptr);
+    auto &old_page = node_pages[new_node_num - 1];
+    depth +=partial_len;
     // Header new_hdr(bnode->hdr);
     // old_page->hdr.val = new_hdr.val;
     old_page->l_padding = 99;
     // old_page->lock_byte = 0;
     assert(old_page->hdr.val !=0);
-    bnode_addrs = new GlobalAddress[mp.size() + 1];   //最后一个放转换为内部节点后的buffe的地址 
-    dsm->alloc_bnodes(mp.size() +1, bnode_addrs);
-    InternalBuffer **new_bnodes = new InternalBuffer* [mp.size()];  //预留一个 可能需要给叶节点 
-    for(auto& it : mp){
+    bnode_addrs = new GlobalAddress[mp1.size()];   //最后一个放转换为内部节点后的buffe的地址 
+    dsm->alloc_bnodes(mp1.size(), bnode_addrs);
+    InternalBuffer **new_bnodes = new InternalBuffer* [mp1.size()];  //预留一个 可能需要给叶节点 
+    for(auto& it : mp1){
       //char partial = it.first;
       auto& vec = it.second;
       // 这里 new 一个新的buffer，，假设是bf
@@ -2306,22 +2363,24 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       else{
         new_bnodes[new_bnode_num]->records[j].val = old_b.records[be].val; // 这里意思是第 i 个叶子的地址
         new_bnodes[new_bnode_num]->records[j].partial = get_partial(leaves[be].get_key(),depth); 
+        assert(new_bnodes[new_bnode_num]->records[j].val !=0);
       }
       assert(new_bnodes[new_bnode_num]->records[j].packed_addr.offset !=0);
       j++;
       }
-      new_bnodes[new_bnode_num]->rev_ptr.val = GADD(bnode_addrs[mp.size()],sizeof(BufferHeader)+sizeof(GlobalAddress)+new_bnode_num*sizeof(BufferEntry)).val;  
+      new_bnodes[new_bnode_num]->rev_ptr.val = GADD(node_addrs[new_node_num - 1],sizeof(BufferHeader)+sizeof(GlobalAddress)+new_bnode_num*sizeof(BufferEntry)).val;  
       BufferHeader new_hdr(depth);
       new_bnodes[new_bnode_num]->hdr.val = new_hdr.val;
       new_bnodes[new_bnode_num]->hdr.count_1 = vec.size();
+      new_bnodes[new_bnode_num]->w_lock = 0;
       new_bnode_num ++;
     }
 
     //整一个write_batch  写所有的缓冲节点和叶节点 还有写旧的叶节点
     /*  */
     int write_num = update_flag? new_bnode_num +1:new_bnode_num +2;
-    RdmaOpRegion *rs_write =  new RdmaOpRegion[write_num];
-    memset(rs_write,0,sizeof(RdmaOpRegion)*(write_num));
+    RdmaOpRegion *rs_write =  new RdmaOpRegion[new_node_num + write_num - 1];
+    memset(rs_write,0,sizeof(RdmaOpRegion)*(new_node_num + write_num - 1));
 
     for (int i = 0; i < new_bnode_num; ++ i) {
       rs_write[i].source     = (uint64_t)new_bnodes[i];
@@ -2337,22 +2396,36 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       rs_write[new_bnode_num].is_on_chip = false;
     //  dsm->write((const char*)leaf_buffer, leaf_addr, sizeof(Leaf_kv), false, cxt);
     }
+    // auto new_e = InternalEntry(old_e.partial,2,nodes_type, node_addrs[0]);
+    auto page_size = sizeof(GlobalAddress) + sizeof(Header) + node_type_to_num(nodes_type) * sizeof(InternalEntry);
+
+    // batch_write nodes (doorbell batching)
+    for (int i = 0; i < new_node_num - 1; ++ i) {
+      int j = i + write_num-1;
+      rs_write[j].source     = (uint64_t)node_pages[i];
+      rs_write[j].dest       = node_addrs[i];
+      rs_write[j].size       = page_size;
+      rs_write[j].is_on_chip = false;
+    }
     {
-      rs_write[write_num-1].source     = (uint64_t)old_page_buffer;
-      rs_write[write_num-1].dest       = bnode_addrs[new_bnode_num];  //是最后一个地址
-      rs_write[write_num-1].size       = sizeof(InternalBuffer);
-      rs_write[write_num-1].is_on_chip = false;
+      rs_write[new_node_num + write_num - 2].source     = (uint64_t)old_page_buffer;
+      rs_write[new_node_num + write_num - 2].dest       = node_addrs[new_node_num-1];  //是最后一个地址
+      rs_write[new_node_num + write_num - 2].size       = sizeof(InternalBuffer);
+      rs_write[new_node_num + write_num - 2].is_on_chip = false;
     //  dsm->write((const char*)old_bnode_buffer, e_ptr, sizeof(InternalBuffer), false, cxt);
     }
 
 
-    dsm->write_batches_sync(rs_write, write_num, cxt, coro_id);
+    dsm->write_batches_sync(rs_write, new_node_num + write_num - 1, cxt, coro_id);
     auto cas_node_type_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
     InternalEntry new_entry(old_e);
     new_entry.child_type = 2;
-    new_entry.node_type = static_cast<uint8_t>(old_page_type);
+    new_entry.node_type = static_cast<uint8_t>(nodes_type);
   //  new (cas_node_type_buffer) InternalEntry(new_entry);
-    new_entry.packed_addr = {bnode_addrs[new_bnode_num].nodeID, bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT};
+    // if(new_node_num > 1)
+    new_entry.packed_addr = {node_addrs[0].nodeID, node_addrs[0].offset >> ALLOC_ALLIGN_BIT};
+    // else
+      // new_entry.packed_addr = {bnode_addrs[new_bnode_num].nodeID, bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT};
     // assert(new_entry.packed_addr.mn_id == 0);
     bool res =dsm->cas_sync(p_ptr, (uint64_t)old_e, (uint64_t)new_entry, cas_node_type_buffer, cxt);
 
