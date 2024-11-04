@@ -203,6 +203,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   bool is_valid, type_correct;
   InternalPage* p_node = nullptr;
   InternalBuffer* bp_node = nullptr;
+  InternalBuffer buffer_node;
   Header hdr;
   BufferHeader bhdr;
   int max_num;
@@ -216,6 +217,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   GlobalAddress parent_page_ptr;
   bool parent_add_to_cache_flag = false;
   bool buffer_type_change = false;
+  bool buffer_initialized = false;
 
 
 
@@ -259,7 +261,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
         node_ptr = cache_entry_parent->addr;
         cache_entry_buffer = entry_ptr;
         cache_entry_buffer_ptr = entry_ptr_ptr; 
-        depth = cache_entry_buffer->depth;
+        depth =cache_entry_buffer->depth -1;
         entry_ptr = cache_entry_parent;
         entry_ptr_ptr = cache_entry_parent_ptr;
         buffer_from_cache_flag = true;
@@ -317,20 +319,27 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     bool is_match;
     auto buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
     GlobalAddress addr = p.addr();
-     if(buffer_from_cache_flag && from_cache)
+     if(buffer_from_cache_flag && from_cache && !buffer_initialized)
      {
-      
+      bp_node = &buffer_node;
+      bp_node->hdr.depth = depth;
+      bp_node->rev_ptr = p_ptr;
+      // read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id); 
       //  if(bp_node && bp_node != (InternalBuffer *)buffer_buffer)
         // delete bp_node;
-               auto cp_buffer_start = std::chrono::high_resolution_clock::now();
-       bp_node =new InternalBuffer(cache_entry_buffer->depth,cache_entry_buffer->records);
+              //  auto cp_buffer_start = std::chrono::high_resolution_clock::now();
+        // auto& records = cache_entry_buffer->records;
+      //  bp_node =new InternalBuffer(cache_entry_buffer->depth,cache_entry_buffer->records);
+        // records 直接通过引用拿到，其他部分初始化
+        // bp_node = new InternalBuffer(k, 0, cache_entry_buffer->depth, 0, 0, p_ptr.val);    直接使用cache的slot
 
-         auto cp_buffer_stop = std::chrono::high_resolution_clock::now();
-    auto cp_buffer_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(cp_buffer_stop - cp_buffer_start);
-        cp_buffer_time[dsm->getMyThreadID()] += cp_buffer_dur.count();
+        //  auto cp_buffer_stop = std::chrono::high_resolution_clock::now();
+    // auto cp_buffer_dur = std::chrono::duration_cast<std::chrono::nanoseconds>(cp_buffer_stop - cp_buffer_start);
+        // cp_buffer_time[dsm->getMyThreadID()] += cp_buffer_dur.count();
+        // buffer_initialized = true;  //可以直接使用cache的buffer
     //  不加上这个的话每次next都要new...
       //is_valid？ 本地的节点如何验证 is valid？？   不用验证 ？
-      bp_node->rev_ptr.val = p_ptr.val;
+      // bp_node->rev_ptr.val = p_ptr.val;
      }
      else
 {
@@ -343,6 +352,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
       read_buffer_node_time_this += read_buffer_node_duration.count();  
       
       bp_node = (InternalBuffer *)buffer_buffer;
+      // auto& records = bp_node->records;
       if (!is_valid) {  // node deleted || outdated cache entry in cached node
 #ifdef USE_CN_CACHE
         if (buffer_from_cache_flag) {
@@ -363,8 +373,9 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         goto next;
       }
     }
-
-    bhdr=bp_node->hdr;
+if(!buffer_from_cache_flag)  //buffer不是从cache来的 
+{
+   bhdr=bp_node->hdr;
 #ifdef USE_CN_CACHE
     if (depth == bhdr.depth && !buffer_from_cache_flag) {   //疯狂加入cache cache会炸掉 加还是得加
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
@@ -399,6 +410,8 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     }
     assert(bhdr.depth !=0);
     depth = bhdr.depth + bhdr.partial_len;
+}
+   
     auto partial = get_partial(k, depth);  //获取需要匹配的关键字 应该是缓冲节点的深度再加上partial len
     //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
   //  if(bhdr.count_1+bhdr.count_2 < 256)
@@ -416,13 +429,19 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
     auto duration_1 = std::chrono::duration_cast<std::chrono::nanoseconds>(stop1 - start1);
     dur[dsm->getMyThreadID()] += duration_1.count();
   auto buffer_empty_loop_start = std::chrono::high_resolution_clock::now();
+        
         for(int i=0;i < 256;i++)
         {
-          if(bp_node->records[i] == BufferEntry::Null()) //If we are at a  buffer  empty and partial key match
+          BufferEntry b_e;
+          if(buffer_from_cache_flag){
+            bp_node->records[i].val = cache_entry_buffer->records[i].val;
+          }
+          b_e.val = bp_node->records[i].val;
+          if(b_e == BufferEntry::Null()) //If we are at a  buffer  empty and partial key match
           {
            depth ++;
-           old_be = bp_node->records[i];
-           old_old_be = old_be;
+           old_be = b_e;
+          //  old_old_be = old_be;
            be_ptr=GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader) + i * sizeof(BufferEntry));
            auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
            bool res = out_of_place_write_leaf(k,v,depth,leaf_addr,leaf_type ,klen,vlen,be_ptr,old_be,cas_buffer,cxt,coro_id);  //直接写空槽
@@ -438,7 +457,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
             buffer_empty_entry[dsm->getMyThreadID()] ++;
                   insert_type[dsm->getMyThreadID()]=4;
 #ifdef USE_CN_CACHE
-            if(bp_node->hdr.depth >1) cache_entry_buffer->records[i].val = old_be.val;
+            if(bp_node->hdr.depth >1 && buffer_from_cache_flag) cache_entry_buffer->records[i].val = old_be.val;
 #endif
             // if(buffer_from_cache_flag) index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer);
             // index_cache->add_to_cache(k,1,(InternalPage*)bp_node,GADD(p.addr(),sizeof(GlobalAddress)+sizeof(BufferHeader)));
@@ -454,14 +473,22 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
             auto e = *(BufferEntry*) cas_buffer;  //当插入空槽失败的话 直接插下一个空槽就得了 不应该判断还有没有下一个捏 如果说一直往后面插都满了再分裂
             bp_node ->records[i].val = e.val;
             //如果这个buffer是从cache 里面来的 并且这个槽的数据可以直接拿到cache的buffer去  
-            // if(buffer_from_cache_flag)  cache_entry_buffer->records[entry_idx].val = e.val;  //__sync_bool_compare_and_swap(&(cache_entry_buffer ->records[i]), 0,e.val) ; //新加
+            if(buffer_from_cache_flag)  cache_entry_buffer->records[entry_idx].val = e.val;  //__sync_bool_compare_and_swap(&(cache_entry_buffer ->records[i]), 0,e.val) ; //新加
             retry_cnt[dsm->getMyThreadID()][CAS_Buffer_EMPTY] ++;
             depth --;
           }
         }
         }
-
-      InternalBuffer old_buffer = *bp_node;
+      
+      // 换个地方复制，cache_entry_buffer->records.size() 应该一定是256
+      // if(from_cache && buffer_from_cache_flag){
+      //   memset(bp_node->records,0,sizeof(bp_node->records));
+      //   for(int i=0;i<(int)(cache_entry_buffer->records.size());i++)
+      //   {
+      //     bp_node->records[i].val = cache_entry_buffer->records[i].val;
+      //   }
+      // }
+       InternalBuffer old_buffer = *bp_node;
         InternalEntry old_p = p;
         bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,from_cache,p, p_ptr,buffer_type_change,cxt,coro_id);
         // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
@@ -470,6 +497,7 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
           // index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
         // }
 #ifdef USE_CN_CACHE
+        // 有个很大的问题，，如果用引用的话，那 invalidate 之后怎么办
         if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
 #endif        
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
@@ -2359,7 +2387,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     auto cas_node_type_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
     InternalEntry new_entry(old_e);
     new_entry.child_type = 2;
-    new_entry.node_type = static_cast<uint8_t>(nodes_type);
+    new_entry.node_type = static_cast<uint8_t>(old_page_type);
   //  new (cas_node_type_buffer) InternalEntry(new_entry);
     // if(new_node_num > 1)
     new_entry.packed_addr = {node_addrs[0].nodeID, node_addrs[0].offset >> ALLOC_ALLIGN_BIT};
@@ -3378,7 +3406,7 @@ void Tree::coro_master(CoroYield &yield, int coro_cnt) {
 
 
 void Tree::statistics() {
-#ifdef TREE_ENABLE_CACHE
+#ifdef USE_CN_CACHE
   index_cache->statistics();
 #endif
 }

@@ -351,7 +351,7 @@ void RadixCache::invalidate(CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) {
 
   if (entry_ptr_ptr && entry_ptr && __sync_bool_compare_and_swap(entry_ptr_ptr, entry_ptr, 0UL)) {
     free_manager->free(entry_ptr->content_size());
-    _safely_delete(entry_ptr);
+    if(entry_ptr->node_type == 0) _safely_delete(entry_ptr);
   }
 
 }
