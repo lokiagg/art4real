@@ -91,7 +91,7 @@ private:
   bool out_of_place_update_leaf(const Key &k, Value &v, int depth, GlobalAddress& leaf_addr, const GlobalAddress &e_ptr, InternalEntry &old_e, const GlobalAddress& node_addr,
                                 CoroContext *cxt, int coro_id, bool disable_handover = false);
   bool out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddress& leaf_addr, int leaf_type ,int klen,int vlen,
-                                    const GlobalAddress &e_ptr, const BufferEntry &old_e, uint64_t *ret_buffer,
+                                    const GlobalAddress &e_ptr,BufferEntry &old_e, uint64_t *ret_buffer,
                                     CoroContext *cxt, int coro_id);
 
   bool read_node(InternalEntry &p, bool& type_correct, char *node_buffer, const GlobalAddress& p_ptr, int depth, bool from_cache,

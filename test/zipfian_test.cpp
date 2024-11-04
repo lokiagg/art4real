@@ -60,6 +60,16 @@ extern uint64_t read_leaves_time[8][MAX_APP_THREAD];
 extern uint64_t loop_time[MAX_APP_THREAD];
 extern uint64_t bufffer_from_cache_cnt[MAX_APP_THREAD];
 
+extern uint64_t buffer_empty_loop_cnt[MAX_APP_THREAD];
+extern uint64_t buffer_empty_loop_time[MAX_APP_THREAD];
+extern uint64_t internal_slot_loop_cnt[MAX_APP_THREAD];
+extern uint64_t internal_slot_loop_time[MAX_APP_THREAD];
+extern uint64_t search_cache_cnt[MAX_APP_THREAD];
+extern uint64_t read_internal_node_cnt[MAX_APP_THREAD];
+extern uint64_t read_buffer_node_cnt[MAX_APP_THREAD];
+extern uint64_t dur[MAX_APP_THREAD];
+extern uint64_t cp_buffer_time[MAX_APP_THREAD];
+
 int kReadRatio;
 int kThreadCount;
 int kNodeCount;
@@ -330,7 +340,7 @@ printf("Cache \n");
 #else 
 printf("No cache\n");
 #endif
-    sleep(1);
+    sleep(2);
     clock_gettime(CLOCK_REALTIME, &e);
     int microseconds = (e.tv_sec - s.tv_sec) * 1000000 +
                        (double)(e.tv_nsec - s.tv_nsec) / 1000;
@@ -509,6 +519,28 @@ printf("No cache\n");
       buffer_cache_cnt += bufffer_from_cache_cnt[i];
     }
 
+    uint64_t buffer_loop_cnt = 0;
+    uint64_t buffer_loop_time = 0;
+    uint64_t search_cache = 0;
+    uint64_t read_internal_c =0;
+    uint64_t read_buffer_c =0;
+    uint64_t internal_slot_c = 0;
+    uint64_t internal_slot_t = 0;
+    uint64_t dur1=0;
+    uint64_t cp_buffer = 0;
+    for(int i = 0;i<MAX_APP_THREAD;i++)
+    {
+      buffer_loop_cnt += buffer_empty_loop_cnt[i];
+      buffer_loop_time += buffer_empty_loop_time[i];
+      search_cache += search_cache_cnt[i];
+      read_internal_c += read_internal_node_cnt[i];
+      read_buffer_c += read_buffer_node_cnt[i];
+      internal_slot_c += internal_slot_loop_cnt[i];
+      internal_slot_t += internal_slot_loop_time[i];
+      dur1 += dur[i];    
+      cp_buffer += cp_buffer_time[i];
+          }
+
     tree->clear_debug_info();
 
 //    save_latency(++ count);
@@ -516,7 +548,7 @@ printf("No cache\n");
       need_stop = true;
     }
 
-    if (dsm->getMyNodeID() == 1) {
+    if (dsm->getMyNodeID() == 0) {
       printf("total %lu", all_retry_cnt[0]);
       for (int i = 1; i < MAX_FLAG_NUM; ++ i) {
         printf(",  retry%d %lu", i, all_retry_cnt[i]);
@@ -560,6 +592,8 @@ printf("No cache\n");
       printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
       printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
       printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
+      // printf("insert avg: %f buffer loop cnt is %" PRIu64" ,buffer loop time is  %" PRIu64"  avg : %f \n",insert_total_time[0]*1.0/insert[0],buffer_loop_cnt,buffer_loop_time,buffer_loop_time*1.0/buffer_loop_cnt);
+      printf("insert avg: %f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy buffer avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_buffer*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
     } 
 /*
     if (dsm->getMyNodeID() == 0) {

@@ -178,7 +178,7 @@ next:
         goto next;
       }
     }
-    else {
+    else {  //就算父节点有next  但是要插入的节点是buffer也不应该往下找了
       parent_node = node;
       node = (CacheNode *)(node_entry.next);
       idx ++;
