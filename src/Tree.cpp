@@ -63,6 +63,7 @@ uint64_t read_leaves_time[8][MAX_APP_THREAD];
 uint64_t write_time[MAX_APP_THREAD];
 uint64_t cas_time[MAX_APP_THREAD];
 uint64_t loop_time[MAX_APP_THREAD];
+uint64_t cp_time[MAX_APP_THREAD];
 
 int depth_test[MAX_APP_THREAD];
 
@@ -147,9 +148,13 @@ InternalEntry Tree::get_root_ptr(CoroContext *cxt, int coro_id) {
 }
 
 void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_update, bool is_load) {
+#ifdef TEST_TIME
   auto start1 = std::chrono::high_resolution_clock::now();
 
+
   auto start = std::chrono::high_resolution_clock::now();
+#endif
+
   assert(dsm->is_register());
   int leaf_type=-1;
   int leaf_size =0;
@@ -168,7 +173,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   // else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
   // else {leaf_type += 4;leaf_size += 1024;}
   // }
-  int cnt_res=cnt.fetch_add(1);
+  // int cnt_res=cnt.fetch_add(1);
   uint64_t k_v = key2int(k);
 
   uint64_t search_from_cache_time_this = 0;
@@ -195,6 +200,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   CacheEntry** cache_entry_buffer_ptr = nullptr;  //指向最后一层的缓冲节点
   CacheEntry* cache_entry_buffer = nullptr;
   int entry_idx = -1;//表示下层节点 特别是buffer在上层父节点的的位置
+  int buffer_entry_idx = -1;//表示下层节点 特别是buffer在上层父节点的的位置
   int cache_depth = 0;
 
   // temp
@@ -227,13 +233,19 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 
   //search from cache
   search_cache_cnt[dsm->getMyThreadID()] ++;
+#ifdef TEST_TIME
   auto search_from_cache_start = std::chrono::high_resolution_clock::now();
+#endif
+
 #ifdef USE_CN_CACHE
-  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
+  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个  在cache里面找到buffer直接去定位空槽的位置呗
+#ifdef TEST_TIME
   auto search_from_cache_stop = std::chrono::high_resolution_clock::now();
   auto search_from_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
   search_from_cache_time[0][dsm->getMyThreadID()] += search_from_cache_duration.count();
     search_from_cache_time_this += search_from_cache_duration.count();
+#endif
+
   if (from_cache) { // cache hit
 
     p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
@@ -343,14 +355,19 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
      }
      else
 {
-      read_buffer_node_cnt[dsm->getMyThreadID()] ++;
+
+      // read_buffer_node_cnt[dsm->getMyThreadID()] ++;
+#ifdef TEST_TIME
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
+#endif
       is_valid = read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);   
+#ifdef TEST_TIME
+
       auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
       auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
       read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count();  
       read_buffer_node_time_this += read_buffer_node_duration.count();  
-      
+#endif
       bp_node = (InternalBuffer *)buffer_buffer;
       // auto& records = bp_node->records;
       if (!is_valid) {  // node deleted || outdated cache entry in cached node
@@ -425,18 +442,28 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
 
 //      if(get_partial(k, bhdr.depth + bhdr.partial_len-1) == bhdr.partial[bhdr.partial_len-1])
 //      {
+#ifdef TEST_TIME
   auto stop1 = std::chrono::high_resolution_clock::now();
     auto duration_1 = std::chrono::duration_cast<std::chrono::nanoseconds>(stop1 - start1);
     dur[dsm->getMyThreadID()] += duration_1.count();
   auto buffer_empty_loop_start = std::chrono::high_resolution_clock::now();
         
-        for(int i=0;i < 256;i++)
+#endif
+        for(int i=0;i < 256;i++)  
         {
+#ifdef TEST_TIME
+           auto cp_start = std::chrono::high_resolution_clock::now();
+#endif
           BufferEntry b_e;
           if(buffer_from_cache_flag){
             bp_node->records[i].val = cache_entry_buffer->records[i].val;
           }
           b_e.val = bp_node->records[i].val;
+#ifdef TEST_TIME
+           auto cp_stop = std::chrono::high_resolution_clock::now();
+     auto cp_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cp_stop - cp_start);
+           cp_time[dsm->getMyThreadID()] +=cp_duration.count();
+#endif
           if(b_e == BufferEntry::Null()) //If we are at a  buffer  empty and partial key match
           {
            depth ++;
@@ -461,10 +488,12 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
 #endif
             // if(buffer_from_cache_flag) index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer);
             // index_cache->add_to_cache(k,1,(InternalPage*)bp_node,GADD(p.addr(),sizeof(GlobalAddress)+sizeof(BufferHeader)));
+#ifdef TEST_TIME
               auto buffer_empty_loop_stop = std::chrono::high_resolution_clock::now();
   auto buffer_empty_loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(buffer_empty_loop_stop - buffer_empty_loop_start);  
             buffer_empty_loop_cnt[dsm->getMyThreadID()] ++;
             buffer_empty_loop_time[dsm->getMyThreadID()] +=buffer_empty_loop_duration.count();
+#endif            
             goto insert_finish;
            }
            else {
@@ -529,17 +558,22 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
   //内部节点
   // 3. Find out a node
   // 3.1 read the node
+  #ifdef TEST_TIME
   read_internal_node_cnt[dsm->getMyThreadID()] ++;
   auto read_internal_node_start = std::chrono::high_resolution_clock::now();
+  #endif
+  
+  
   parent_add_to_cache_flag = false;
   page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth,from_cache,cxt, coro_id);
 
+#ifdef TEST_TIME
   auto read_internal_node_stop = std::chrono::high_resolution_clock::now();
   auto read_internal_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_internal_node_stop - read_internal_node_start);  
   read_internal_node_time[0][dsm->getMyThreadID()] += read_internal_node_duration.count(); 
   read_internal_node_time_this += read_internal_node_duration.count(); 
- 
+#endif
   p_node = (InternalPage *)page_buffer;
   parent_page = p_node;
   parent_page_ptr = p.addr();  //先不着急加到cache里面去   有可能会变成进行节点类型转换
@@ -616,8 +650,10 @@ l1:
   max_num = node_type_to_num(p.type());
 //  max_num = 256;
   // search a exists slot first 难道是在内部节点里面找很耗时？？
+#ifdef TEST_TIME  
   internal_slot_loop_cnt[dsm->getMyThreadID()] ++;
   auto internal_slot_loop_start = std::chrono::high_resolution_clock::now();
+#endif
   for (int i = 0; i < max_num; ++ i) {   //可能是节点的类型没有cas成功？
     auto old_e = p_node->records[i];
     if (old_e != InternalEntry::Null() && old_e.partial == get_partial(k, depth)) {
@@ -630,9 +666,13 @@ l1:
       if(depth > 1) entry_idx =i;
       depth ++;
       level ++;
+#ifdef TEST_TIME
+
       auto internal_slot_loop_stop = std::chrono::high_resolution_clock::now();
 auto internal_slot_loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(internal_slot_loop_stop - internal_slot_loop_start);
       internal_slot_loop_time[dsm->getMyThreadID()] += internal_slot_loop_duration.count();
+#endif
+      
       goto next;  // search next level
     }
   }
@@ -1049,6 +1089,7 @@ else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲�
 }
 
 insert_finish:
+#ifdef TEST_TIME
   auto stop = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);
   insert_time[0][dsm->getMyThreadID()] += duration.count();
@@ -1059,6 +1100,7 @@ insert_finish:
   read_internal_node_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_internal_node_time_this;
   read_leaves_time[insert_type[dsm->getMyThreadID()]][dsm->getMyThreadID()] += read_leaves_time_this;
   depth_test[dsm->getMyThreadID()] = std::max(level+1,depth_test[dsm->getMyThreadID()]);
+#endif
 
 #ifdef TREE_TEST_ROWEX_ART
   if (!is_update) unlock_node(node_ptr, cxt, coro_id);
@@ -1324,12 +1366,12 @@ bool Tree::out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddr
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
     new (leaf_buffer) Leaf_kv(e_ptr,leaf_type,klen,vlen,k, v);
     leaf_addr = dsm->alloc(sizeof(Leaf_kv));
-    write_cnt[dsm->getMyThreadID()]++;
-    auto write_start = std::chrono::high_resolution_clock::now();
+    // write_cnt[dsm->getMyThreadID()]++;
+    // auto write_start = std::chrono::high_resolution_clock::now();
     dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
-    auto write_stop = std::chrono::high_resolution_clock::now();
-    auto write_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(write_stop - write_start);
-    write_time[dsm->getMyThreadID()] += write_duration.count();
+    // auto write_stop = std::chrono::high_resolution_clock::now();
+    // auto write_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(write_stop - write_start);
+    // write_time[dsm->getMyThreadID()] += write_duration.count();
   }
   else {  // write the changed e_ptr inside leaf
     auto ptr_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
@@ -1342,11 +1384,11 @@ bool Tree::out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddr
 
   auto remote_cas = [=](){
     cas_cnt[dsm->getMyThreadID()] ++;
-    auto cas_start = std::chrono::high_resolution_clock::now();
+    // auto cas_start = std::chrono::high_resolution_clock::now();
     bool res=dsm->cas_sync(e_ptr, (uint64_t)old_e, (uint64_t)new_e, ret_buffer, cxt); 
-    auto cas_stop = std::chrono::high_resolution_clock::now();
-    auto cas_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cas_stop - cas_start);
-    cas_time[dsm->getMyThreadID()] += cas_duration.count();   
+    // auto cas_stop = std::chrono::high_resolution_clock::now();
+    // auto cas_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cas_stop - cas_start);
+    // cas_time[dsm->getMyThreadID()] += cas_duration.count();   
     return res;
   };
 
@@ -3451,5 +3493,5 @@ void Tree::clear_debug_info() {
   memset(internal_slot_loop_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);  
     memset(dur,0,sizeof(uint64_t)*MAX_APP_THREAD);
     memset(cp_buffer_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
-
+    memset(cp_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
 }
