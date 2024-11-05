@@ -175,19 +175,19 @@ class RadixCache {
 public:
   RadixCache(int cache_size, DSM *dsm);
 
-  void add_to_cache_new(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry* &entry_ptr);
+  bool add_to_cache_new(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry* &entry_ptr);
 //  void add_buffer_to_cache(const Key& k, const InternalBuffer* p_node, const GlobalAddress &node_addr);
 void add_to_cache(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr);
   void change_node_type(CacheEntry*& entry_ptr){entry_ptr->node_type = 0;}
 
-  bool search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& parent_parent_type,int& entry_idx,CacheEntry**& cache_entry_parent_ptr,CacheEntry* & cache_entry_parent,int& first_buffer);
+  bool search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& parent_parent_type,int& entry_idx,int& buffer_entry_idx,CacheEntry**& cache_entry_parent_ptr,CacheEntry* & cache_entry_parent,int& first_buffer);
   void search_range_from_cache(const Key &from, const Key &to, std::vector<RangeCache> &result);
   void invalidate(CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr);
   void clear();
   void statistics();
 
 private:
-  void _insert(const CacheKey& byte_array, CacheEntry* new_entry);
+  bool _insert(const CacheKey& byte_array, CacheEntry* new_entry);
 
   using SearchRetStk = std::stack<SearchRet>;
   bool _search(const CacheKey& byte_array, SearchRetStk& ret);

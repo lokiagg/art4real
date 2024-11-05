@@ -47,7 +47,7 @@ v = (uint64_t)page->hdr;
 
   return;
 }
-void RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr , CacheEntry* &entry_ptr ) {
+bool RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr , CacheEntry* &entry_ptr ) {
   assert(node_type <= 1);
   InternalPage * page = const_cast<InternalPage*>(p_node);
   v = (uint64_t)page->hdr;
@@ -59,9 +59,10 @@ void RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPag
   for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
   auto new_entry = new CacheEntry(p_node,node_type,node_addr);
+  assert(new_entry->depth <8);
   entry_ptr = new_entry;
 
-  _insert(byte_array, new_entry);
+  bool res =_insert(byte_array, new_entry);
 #ifndef CACHE_ENABLE_ART
   free_manager->consume(sizeof(Key));  // emulate hash-based cache
 #endif
@@ -71,10 +72,10 @@ void RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPag
 
   //  std::cout <<" free_size=" << free_manager->remain_size() / define::MB << " MB"<<std::endl;
 
-  return;
+  return res;
 }
 
-void RadixCache::_insert(const std::vector<uint8_t>& byte_array, CacheEntry* new_entry) {
+bool RadixCache::_insert(const std::vector<uint8_t>& byte_array, CacheEntry* new_entry) {
   CacheNode* parent_node = nullptr;
   CacheNode* node = cache_root;
   int idx = 0;
@@ -127,7 +128,7 @@ next:
       if (nested_node) node_queue->push(nested_node);
       CacheMap::const_iterator tmp = (nested_node ? nested_node->records.find(byte_array.back()) : new_node->records.find(cur_partial));
       eviction_list.push(std::make_pair(&(tmp->second.cache_entry), new_entry));
-      return;
+      return true;
     }
   }
   idx = hdr->depth + hdr->partial.size();  //和depth功能一致
@@ -148,11 +149,15 @@ next:
         _safely_delete(old_entry);
       }
       eviction_list.push(std::make_pair(&(node_entry.cache_entry), new_entry));
+      return true;
     }
     else {
+
       delete new_entry;
+      new_entry = node_entry.cache_entry;
+      return false;
     }
-    return;
+    // return;
   }
   // 2.2 internal level
   else {    
@@ -168,7 +173,7 @@ next:
         free_manager->consume_by_node(node);
         free_manager->consume_by_node(next_node);
         free_manager->consume(new_entry->content_size());
-        return;
+        return true;
       }
       else {  // cas fail
         delete next_node;
@@ -193,7 +198,7 @@ void change_node_type(CacheEntry*& entry_ptr)
 }
 
 
-bool RadixCache::search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& parent_parent_type,int& entry_idx,CacheEntry**& cache_entry_parent_ptr,CacheEntry* & cache_entry_parent,int& first_buffer) {  //当发现是一个缓冲节点直接返回内部节点？  entry_ptr_ptr是地址 entry_ptr的地址
+bool RadixCache::search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& parent_parent_type,int& entry_idx,int& buffer_entry_idx,CacheEntry**& cache_entry_parent_ptr,CacheEntry* & cache_entry_parent,int& first_buffer) {  //当发现是一个缓冲节点直接返回内部节点？  entry_ptr_ptr是地址 entry_ptr的地址
 
   CacheKey byte_array(k.begin(), k.begin() + define::maxkeyLen - 1);
 
@@ -222,7 +227,23 @@ next:    while(!ret.empty()) {
         else{       //如果是最接近叶节点的缓冲节点直接返回该缓冲节点  或者返回多个槽？
             entry_ptr = cache_entry;
             entry_ptr_ptr = item.entry_ptr_ptr;
-            // for (int i = 0; i < (int)cache_entry->records.size(); ++ i) {  //一个个查看slot
+            for (int i = 0; i < (int)cache_entry->records.size();i ++) {    //找第一个空槽
+              if(cache_entry->records[i] == InternalEntry::Null())
+              {
+                buffer_entry_idx = i ;
+                break;
+              } 
+              }  //一个个查看slot
+            // for (int i = cache_entry->records.size() - 1; i >=0;i --) {    //从后往前找
+            //   if(cache_entry->records[i] != InternalEntry::Null() && i < cache_entry->records.size() -1)
+            //   {
+            //     buffer_entry_idx = i ;
+            //     break;
+            //   } 
+            //   } 
+
+
+
               //  BufferEntry e = *((BufferEntry*)&cache_entry->records[i]);
             // if (e != BufferEntry::Null() && e.partial == next_partial) {       //找到部分键匹配的了  应该返回这个缓冲节点本身 而不是缓冲节点的槽  所以需要在上一个entry里面去找buffer对应的slot的位置  现在是buffer 上一级起码还有一个节点
             

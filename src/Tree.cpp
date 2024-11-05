@@ -173,7 +173,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   // else if (256<vlen && vlen <= 512 ) {leaf_type += 3;leaf_size += 512;}
   // else {leaf_type += 4;leaf_size += 1024;}
   // }
-  // int cnt_res=cnt.fetch_add(1);
+  int cnt_res=cnt.fetch_add(1);
   uint64_t k_v = key2int(k);
 
   uint64_t search_from_cache_time_this = 0;
@@ -238,7 +238,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 #endif
 
 #ifdef USE_CN_CACHE
-  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个  在cache里面找到buffer直接去定位空槽的位置呗
+  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个  在cache里面找到buffer直接去定位空槽的位置呗
 #ifdef TEST_TIME
   auto search_from_cache_stop = std::chrono::high_resolution_clock::now();
   auto search_from_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
@@ -303,7 +303,13 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   cache_depth = depth; 
 
   UNUSED(is_update);  // is_update is only used in ROWEX_ART baseline
-
+// if(buffer_from_cache_flag)
+// {
+//   for(int i =0;i<cache_entry_buffer->records.size();i++)
+//   {
+//     assert(cache_entry_buffer->records[i] != InternalEntry::Null());
+//   }
+// }
   int retry_read_buffer = 0;
 next:
   retry_cnt[dsm->getMyThreadID()][retry_flag] ++;
@@ -390,13 +396,15 @@ if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空�
         goto next;
       }
     }
+  bhdr=bp_node->hdr;
 if(!buffer_from_cache_flag)  //buffer不是从cache来的 
 {
-   bhdr=bp_node->hdr;
+    int falg1 = 0;
 #ifdef USE_CN_CACHE
     if (depth == bhdr.depth && !buffer_from_cache_flag) {   //疯狂加入cache cache会炸掉 加还是得加
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
       index_cache->add_to_cache_new(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)),cache_entry_buffer);
+     falg1 =1;
     }
 #endif
 
@@ -447,9 +455,10 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
     auto duration_1 = std::chrono::duration_cast<std::chrono::nanoseconds>(stop1 - start1);
     dur[dsm->getMyThreadID()] += duration_1.count();
   auto buffer_empty_loop_start = std::chrono::high_resolution_clock::now();
-        
 #endif
-        for(int i=0;i < 256;i++)  
+        int start_idx = 0;
+        if(buffer_from_cache_flag && buffer_entry_idx!= -1) start_idx = buffer_entry_idx;
+        for(int i= start_idx;i < 256;i++)  
         {
 #ifdef TEST_TIME
            auto cp_start = std::chrono::high_resolution_clock::now();
@@ -484,7 +493,7 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
             buffer_empty_entry[dsm->getMyThreadID()] ++;
                   insert_type[dsm->getMyThreadID()]=4;
 #ifdef USE_CN_CACHE
-            if(bp_node->hdr.depth >1 && buffer_from_cache_flag) cache_entry_buffer->records[i].val = old_be.val;
+            if(bp_node->hdr.depth >1) cache_entry_buffer->records[i].val = old_be.val;
 #endif
             // if(buffer_from_cache_flag) index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer);
             // index_cache->add_to_cache(k,1,(InternalPage*)bp_node,GADD(p.addr(),sizeof(GlobalAddress)+sizeof(BufferHeader)));
@@ -517,9 +526,11 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
       //     bp_node->records[i].val = cache_entry_buffer->records[i].val;
       //   }
       // }
+
        InternalBuffer old_buffer = *bp_node;
         InternalEntry old_p = p;
-        bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,from_cache,p, p_ptr,buffer_type_change,cxt,coro_id);
+        // if(buffer_from_cache_flag) bp_node->records = cache_entry_buffer->records;
+        bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,cache_entry_buffer,from_cache,buffer_from_cache_flag,p, p_ptr,buffer_type_change,cxt,coro_id);
         // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
         // {
           // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
@@ -2161,7 +2172,7 @@ int Tree::find_next_diff(Leaf_kv* leaves, int leaf_cnt, int depth){
 }
 
 
-bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,bool from_cache,InternalEntry& old_e, GlobalAddress p_ptr,bool &buffer_type_change ,CoroContext *cxt, int coro_id) {
+bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,CacheEntry*& cache_entry_buffer,bool from_cache,bool buffer_from_cache_flag,InternalEntry& old_e, GlobalAddress p_ptr,bool &buffer_type_change ,CoroContext *cxt, int coro_id) {
   //先获取锁 再修改 否则不修改  搞异地更新吧 ！！！！！
   static const uint64_t lock_cas_offset = ROUND_DOWN(STRUCT_OFFSET(InternalBuffer, lock_byte), 3);  //8B对齐
   static const uint64_t lock_mask       = 1UL << ((STRUCT_OFFSET(InternalBuffer, lock_byte) - lock_cas_offset) * 8);
@@ -2171,7 +2182,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   if(!acquire_lock) return false;
 
   depth ++;
-  InternalBuffer old_b = *bnode;
+if(buffer_from_cache_flag) assert(cache_entry_buffer->records.size() == 256);
   int leaf_cnt = 256;
   int leaf_entry_cnt[256];  //记录在bnode 的槽里面partialkey一致的叶子的数量
   std::vector<RdmaOpRegion> rs;
@@ -2184,6 +2195,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
   for(int i =0;i<256;i++)  //把所有叶子读过来
   {
+  if(buffer_from_cache_flag && bnode->records[i].val == 0)   bnode->records[i].val = cache_entry_buffer->records[i].val;
      RdmaOpRegion r;
         r.dest       = bnode->records[i].addr();
         r.source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
@@ -2192,6 +2204,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
         r.is_on_chip = false;
         rs.push_back(r);
   }
+  InternalBuffer old_b = *bnode;
   //读需要放在下一层的叶节点 read_batch
   dsm->read_batches_sync(rs);   //没读过来？？？搞成单次读呢？
   //写叶节点
@@ -2800,6 +2813,7 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
   CacheEntry** cache_entry_buffer_ptr = nullptr;
 
   int entry_idx = -1;
+  int buffer_entry_idx = -1;
   int cache_depth = 0;
 
   // temp
@@ -2807,6 +2821,7 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
   bool is_valid, type_correct;
   InternalPage* p_node = nullptr;
   InternalBuffer* bp_node = nullptr;
+  InternalBuffer buffer_node;
   Header hdr;
   BufferHeader bhdr;
   int max_num;
@@ -2814,7 +2829,7 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
   int buffer_from_cache_flag = 0;
   int first_buffer = 0;
 #ifdef USE_CN_CACHE
-  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
+  from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个 
   if (from_cache) { // cache hit
 
     p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
@@ -2841,6 +2856,7 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
         depth = cache_entry_parent->depth;
         cache_entry_buffer = entry_ptr;
         cache_entry_buffer_ptr = entry_ptr_ptr; 
+        depth =cache_entry_buffer->depth -1;
         entry_ptr = cache_entry_parent;  //指向父节点
         entry_ptr_ptr = cache_entry_parent_ptr;
         buffer_from_cache_flag = true;
@@ -2892,12 +2908,15 @@ next:
 
      if(buffer_from_cache_flag && from_cache)
      {
+      bp_node = &buffer_node;
+      bp_node->hdr.depth = depth;
+      bp_node->rev_ptr = p_ptr;
       //  if(bp_node && bp_node != (InternalBuffer *)buffer_buffer)
         // delete bp_node;
-       bp_node =new InternalBuffer(cache_entry_buffer->depth,cache_entry_buffer->records);
+      //  bp_node =new InternalBuffer(cache_entry_buffer->depth,cache_entry_buffer->records);
     //  不加上这个的话每次next都要new...
       //is_valid？ 本地的节点如何验证 is valid？？   不用验证 ？
-       bp_node->rev_ptr.val = p_ptr.val;
+      //  bp_node->rev_ptr.val = p_ptr.val;
      }
      else
     {
@@ -2927,20 +2946,24 @@ next:
     }
 
     //2.1 check partial key
-    bhdr=bp_node->hdr;
+    if(!buffer_from_cache_flag)
+    {
+      bhdr=bp_node->hdr;
 #ifdef USE_CN_CACHE
-     if (depth == hdr.depth && !buffer_from_cache_flag) {
-          // printf("thread  %d 18 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(bp_node->hdr));
-     index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
-     }
+      if (depth == hdr.depth && !buffer_from_cache_flag) {
+            // printf("thread  %d 18 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(bp_node->hdr));
+      index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      }
 #endif
-    for (int i = 0; i < bhdr.partial_len; ++ i) {      //查看部分键前n个字节
-    if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {
-      search_res = false;
-      goto search_finish;
+      for (int i = 0; i < bhdr.partial_len; ++ i) {      //查看部分键前n个字节
+      if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {
+        search_res = false;
+        goto search_finish;
+      }
+      }
+      depth = bhdr.depth + bhdr.partial_len ;
     }
-    }
-    depth = bhdr.depth + bhdr.partial_len ;
+    
   //  uint16_t fp = generateFingerprint(k);
 
     //2.2 if all partial key match search from the start else from the end 
@@ -3119,26 +3142,32 @@ else{   //parent是一个buffernode
       uint8_t partial = get_partial(k, bhdr.depth + bhdr.partial_len);
       for(int i =0 ; i < 256 ;i++)
       {
-      if(bp_node->records[i] != BufferEntry::Null()&&bp_node->records[i].partial == partial )
+        BufferEntry b_e;
+        if(buffer_from_cache_flag){
+          bp_node->records[i].val = cache_entry_buffer->records[i].val;
+        }
+        b_e.val = bp_node->records[i].val;
+      if(b_e != BufferEntry::Null() && b_e.partial == partial )
       {
       //  assert(bp_node->records[i].addr().nodeID == 0);
-        if(bp_node->records[i].node_type == 1 || bp_node->records[i].node_type == 2)   //是一个缓冲节点 或者内部节点 继续往下找 
-        {
-          bp = bp_node->records[i];
-          p_ptr = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + i*sizeof(BufferEntry));
-          depth ++;
-          parent_type = 1;
-          from_cache = false;
-          retry_flag = FIND_NEXT;
-          goto next;
-        }
-        else 
-        {
-          leaf_addrs[leaf_cnt] = bp_node->records[i].addr();
+        // if(bp_node->records[i].node_type == 1 || bp_node->records[i].node_type == 2)   //是一个缓冲节点 或者内部节点 继续往下找 
+        // {
+        //   bp = bp_node->records[i];
+        //   p_ptr = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + i*sizeof(BufferEntry));
+        //   depth ++;
+        //   parent_type = 1;
+        //   from_cache = false;
+        //   retry_flag = FIND_NEXT;
+        //   goto next;
+        // }
+        // else 
+        // {
+          leaf_addrs[leaf_cnt] = b_e.addr();
           leaves_ptr[leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + i*sizeof(BufferEntry));
           leaf_cnt ++;   
-        }
+        // }
       }
+      break; // 找到空的就直接break
       }
       if(leaf_cnt == 0)
       {
