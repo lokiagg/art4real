@@ -220,7 +220,7 @@ void DSM::read_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx) {
   }
 }
 
-void DSM::read_batches_sync(const std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
+void DSM::read_batches_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
   RdmaOpRegion each_rs[MAX_MACHINE][kReadOroMax];
   int cnt[MAX_MACHINE];
   memset(each_rs,0,sizeof(RdmaOpRegion)*MAX_MACHINE*kReadOroMax);

@@ -45,7 +45,7 @@ public:
   void read_batch(RdmaOpRegion *rs, int k, bool signal = true,
                   CoroContext *ctx = nullptr);
   void read_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx = nullptr);
-  void read_batches_sync(const std::vector<RdmaOpRegion>& rs, CoroContext *ctx = nullptr, int coro_id = 0);
+  void read_batches_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx = nullptr, int coro_id = 0);
 
   void write_batch(RdmaOpRegion *rs, int k, bool signal = true,
                    CoroContext *ctx = nullptr);

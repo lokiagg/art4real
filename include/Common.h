@@ -22,10 +22,10 @@
 #include "WRLock.h"
 
 // Environment Config
-#define MAX_MACHINE 5
+#define MAX_MACHINE 1
 #define MEMORY_NODE_NUM 1
 #define CPU_PHYSICAL_CORE_NUM 28  // [CONFIG]
-#define MAX_CORO_NUM 8
+#define MAX_CORO_NUM 2
 
 #define LATENCY_WINDOWS 100000
 #define ALLOC_ALLIGN_BIT 8
@@ -98,7 +98,7 @@ constexpr uint64_t dsmSize           =100;        // GB  [CONFIG]
 constexpr uint64_t kChunkSize        = 16 * MB;   // B
 
 // Rdma Buffer
-constexpr uint64_t rdmaBufferSize    = 4;         // GB  [CONFIG]
+constexpr uint64_t rdmaBufferSize    = 8;         // GB  [CONFIG]
 constexpr int64_t kPerThreadRdmaBuf  = rdmaBufferSize * define::GB / MAX_APP_THREAD;
 constexpr int64_t kPerCoroRdmaBuf    = kPerThreadRdmaBuf / MAX_CORO_NUM;
 

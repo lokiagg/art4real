@@ -16,6 +16,7 @@ private:
   static const int kHeaderBufferCnt = 32;
   static const int kEntryBufferCnt  = 32;
   static const int kBufferEntryBufferCnt  = 32;
+  static const int RangeCnt  = 1024;
 
 
   char *buffer;
@@ -44,6 +45,7 @@ private:
   int buffer_entry_buffer_cur;
   int key_buffer_cur;
   int value_buffer_cur;
+  int range_cur;
 
 public:
   RdmaBuffer(char *buffer) {
@@ -59,6 +61,7 @@ public:
     buffer_entry_buffer_cur =0;
     key_buffer_cur    =0;
     value_buffer_cur  =0;
+    range_cur = 0;
   }
 
   RdmaBuffer() = default;
@@ -123,11 +126,17 @@ public:
     entry_buffer_cur = (entry_buffer_cur + 1) % kEntryBufferCnt;
     return entry_buffer + entry_buffer_cur;
   }
+/*
+  char *get_range_buffer(int k) {
+   range_cur = (range_cur + k)  %  RangeCnt ;
+    return range_buffer + range_cur * define::allocAlignKVLeafSize ;
 
+    return range_buffer;
+  }
+*/
   char *get_range_buffer() {
     return range_buffer;
   }
-
   char *get_zero_byte() {
     return zero_byte;
   }

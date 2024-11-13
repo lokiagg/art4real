@@ -447,7 +447,7 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
 #ifdef USE_CN_CACHE
     if (depth == bhdr.depth && !buffer_from_cache_flag) {   //疯狂加入cache cache会炸掉 加还是得加
     //  printf("thread  %d 3 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
-     add_to_cache_res = index_cache->add_to_cache_new(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)),cache_entry_buffer,cache_entry_buffer_ptr);
+     //加buffer到cache  add_to_cache_res = index_cache->add_to_cache_new(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)),cache_entry_buffer,cache_entry_buffer_ptr);
     //  if(depth >1)assert(cache_entry_buffer->depth <7);
      flag1 =1;
     }
@@ -549,7 +549,7 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
                   // buffer_node_cnt[dsm->getMyThreadID()] ++;
             
 #ifdef USE_CN_CACHE   //也有可能在中间的时候就被失效了啊 这咋办？
-            if(bp_node->hdr.depth >1) cache_entry_buffer->records[i].val = old_be.val;   //并且没有被失效 这个时候再加  怎么标识这个buffer有没有失效呢？？？ 直接找到他的指针吧？
+            //加buffer到cache if(bp_node->hdr.depth >1) cache_entry_buffer->records[i].val = old_be.val;   //并且没有被失效 这个时候再加  怎么标识这个buffer有没有失效呢？？？ 直接找到他的指针吧？
             // bp_node->records[i].val = old_be.val;
             // index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer);
             // index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
@@ -910,7 +910,7 @@ else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲�
 #ifdef USE_CN_CACHE
     if (depth == bhdr.depth) {
     //      printf("thread  %d 5 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
-    index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(bp.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
+    // index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(bp.a0ddr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
 #endif
 
@@ -1276,7 +1276,7 @@ re_read:
       r.is_on_chip = false;
       rs.push_back(r);
     }
-    dsm->read_batches_sync(rs);
+    dsm->read_batches_sync(rs,cxt,coro_id);
 
     for(int i =0;i<leaf_cnt;i++)
     {
@@ -1335,7 +1335,7 @@ bool Tree::out_of_place_write_buffer_n_leaf(const Key &k, Value &v, int depth, G
     if(res)
     {
     //  printf("thread  %d 2 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)buffer->hdr);
-      index_cache->add_to_cache(k, 1,(InternalPage*)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      //加buffer到cache index_cache->add_to_cache(k, 1,(InternalPage*)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
     }
 #endif
 
@@ -2098,13 +2098,13 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
 
   bnode_addrs = new GlobalAddress[new_bnode_num + 2];   //最后一个放转换为内部节点后的buffe的地址 
   leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
-  auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
+  auto leaves_buffer =(dsm->get_rbuf(coro_id)).get_range_buffer();
   for(int i =0;i<(int) rs.size();i++)
   {
     rs[i].source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
   }
   //读需要放在下一层的叶节点 read_batch
-  dsm->read_batches_sync(rs);   //没读过来？？？搞成单次读呢？
+  dsm->read_batches_sync(rs,cxt,coro_id);   //没读过来？？？搞成单次读呢？
   //写叶节点
   auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
 
@@ -2328,7 +2328,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   GlobalAddress *bnode_addrs; 
 
   // leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
-  auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
+  auto leaves_buffer =(dsm->get_rbuf(coro_id)).get_range_buffer();
   for(int i =0;i<256;i++)  //把所有叶子读过来
   {
   if(buffer_from_cache_flag && bnode->records[i].val == 0)   bnode->records[i].val = buffer_slot[i].val;
@@ -2342,11 +2342,11 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   }
   InternalBuffer old_b = *bnode;
   //读需要放在下一层的叶节点 read_batch
-  dsm->read_batches_sync(rs);   //没读过来？？？搞成单次读呢？
+  dsm->read_batches_sync(rs,cxt,coro_id);   //没读过来？？？搞成单次读呢？
   //写叶节点
   auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
   
-  leaf_addr = dsm->alloc(sizeof(Leaf_kv));
+  if(leaf_addr == GlobalAddress::Null()) leaf_addr = dsm->alloc(sizeof(Leaf_kv));
 
 
   Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
@@ -2443,7 +2443,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
           // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
           index_cache->invalidate(entry_ptr_ptr, entry_ptr);
         }
-        index_cache->add_to_cache(k, 1,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+        //加buffer到cache index_cache->add_to_cache(k, 1,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
 #endif
         return true;
      }
@@ -2633,6 +2633,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       // assert(node_pages[i]->hdr.depth <7);    
       // assert(ca_ptr->depth <7);  
     }
+    //加buffer到cache
+    /*
     for (int i = 0; i < new_bnode_num; ++ i) {
             // CacheEntry* ca_ptr;
         // printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
@@ -2640,14 +2642,20 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       else  index_cache->add_to_cache(leaves[slot_idx[i]].key,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));  //这里的k传错了 
       // assert(new_bnodes[i]->hdr.depth <7);
       // assert(ca_ptr->depth <7); 
-    }
+    }*/
 #endif
     old_e = new_entry;  //重新赋值 新增
     buffer_type_change = true;
+    delete[] leaves;
+    delete[] new_bnodes;
+    delete[] node_pages;
     return true;
 
   }
   //old_e = *(InternalEntry*) cas_node_type_buffer;
+      delete[] leaves;
+    delete[] new_bnodes;
+    delete[] node_pages;
   return false;
 
   }
@@ -2721,13 +2729,13 @@ bool Tree::out_of_place_write_buffer_node_from_buffer(const Key &k, Value &v, in
 
   bnode_addrs = new GlobalAddress[new_bnode_num + 1];
   leaf_flag?  dsm->alloc_bnodes(new_bnode_num, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs);
-  auto leaves_buffer =(dsm->get_rbuf(0)).get_range_buffer();
+  auto leaves_buffer =(dsm->get_rbuf(coro_id)).get_range_buffer();
   for(int i =0;i<(int) rs.size();i++)
   {
     rs[i].source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
   }
   //读需要放在下一层的叶节点 read_batch
-  dsm->read_batches_sync(rs);   //没读过来？？？搞成单次读呢？
+  dsm->read_batches_sync(rs,cxt,coro_id);   //没读过来？？？搞成单次读呢？
   //写叶节点
   auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
 
@@ -2939,7 +2947,7 @@ bool Tree::insert_behind(const Key &k, Value &v, GlobalAddress p_ptr,int depth, 
     if (res) {
       inserted_idx = slot_id;
 #ifdef USE_CN_CACHE
-      index_cache->add_to_cache(k, 1,(InternalPage *)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      //加buffer到cache index_cache->add_to_cache(k, 1,(InternalPage *)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
 #endif
       return true;
     }
