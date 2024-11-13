@@ -180,7 +180,7 @@ inline Key int2key(uint64_t key) {
     res.at(i - 1) = ((uint64_t)shr >= 64u ? 0 : ((key >> (uint64_t)shr) & ((1 << 8) - 1))); // Is equivalent to padding zero for short key
   }
   std::fill(res.begin() + keylen, res.end() -1 , 0);
-  res.at(64)=keylen;
+  // res.at(64)=keylen;
   return res;
 }
 

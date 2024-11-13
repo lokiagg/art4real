@@ -175,7 +175,7 @@ class RadixCache {
 public:
   RadixCache(int cache_size, DSM *dsm);
 
-  bool add_to_cache_new(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry* &entry_ptr);
+  bool add_to_cache_new(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr,CacheEntry* &entry_ptr,CacheEntry**& entry_ptr_ptr);
 //  void add_buffer_to_cache(const Key& k, const InternalBuffer* p_node, const GlobalAddress &node_addr);
 void add_to_cache(const Key& k,int node_type, const InternalPage* p_node, const GlobalAddress &node_addr);
   void change_node_type(CacheEntry*& entry_ptr){entry_ptr->node_type = 0;}
@@ -187,8 +187,8 @@ void add_to_cache(const Key& k,int node_type, const InternalPage* p_node, const 
   void statistics();
 
 private:
-  bool _insert(const CacheKey& byte_array, CacheEntry* new_entry);
-
+  int _insert(const CacheKey& byte_array, CacheEntry*& new_entry);
+  int _insert_new(const CacheKey& byte_array, CacheEntry*& new_entry,CacheEntry**& new_entry_ptr);
   using SearchRetStk = std::stack<SearchRet>;
   bool _search(const CacheKey& byte_array, SearchRetStk& ret);
   // bool _random_search(SearchRetStk& ret);
@@ -203,7 +203,7 @@ private:
   uint64_t cache_size; // MB
   FreeMemManager* free_manager;
   CacheNode* cache_root;
-  tbb::concurrent_queue<CacheNode*>* node_queue;
+  tbb::concurrent_queue<CacheNode*>* node_queue;   //作用？？？
 
   // GC
   tbb::concurrent_queue<CacheEntry*> cache_entry_gc;

@@ -32,7 +32,8 @@ struct Request {
 class RequstGen {
 public:
   RequstGen() = default;
-  virtual Request next() { return Request{}; }
+  virtual Request next() { return Request{};
+   }
 };
 
 
@@ -111,11 +112,14 @@ private:
   bool out_of_place_write_buffer_node_from_buffer(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,bool from_cache,BufferEntry& old_e,GlobalAddress p_ptr,
                                    CoroContext *cxt, int coro_id);
   
-  bool out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,CacheEntry*& cache_entry_buffer,bool from_cache,bool buffer_from_cache_flag,InternalEntry& old_e, GlobalAddress p_ptr,bool & buffer_type_change,CoroContext *cxt, int coro_id );
+  bool out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,std::vector<InternalEntry> buffer_slot,bool from_cache,bool buffer_from_cache_flag,InternalEntry& old_e, GlobalAddress p_ptr,bool & buffer_type_change,CoroContext *cxt, int coro_id );
                                    /*
   bool out_of_place_write_node_from_buffer(const Key &k, Value &v, int depth, GlobalAddress& leaf_addr, int leaf_type,int klen,int vlen,int partial_len, uint8_t partial,uint8_t diff_partial,
                                    const GlobalAddress &e_ptr, const BufferEntry &old_e, const GlobalAddress& node_addr,
                                    uint64_t *ret_buffer, CoroContext *cxt, int coro_id);*/
+  int faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, GlobalAddress& leaf_addr, int leaf_type ,int klen,int vlen,
+                                    const GlobalAddress &e_ptr, GlobalAddress old_e, uint64_t *ret_buffer,
+                                    CoroContext *cxt, int coro_id);
   bool insert_behind(const Key &k, Value &v, GlobalAddress addr,int depth, GlobalAddress& leaf_addr, uint8_t partial_key, NodeType node_type,int leaf_type,int klen,int vlen,
                          const GlobalAddress &node_addr, uint64_t *ret_buffer, int& inserted_idx,
                          CoroContext *cxt, int coro_id);

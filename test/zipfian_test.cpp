@@ -70,10 +70,18 @@ extern uint64_t read_buffer_node_cnt[MAX_APP_THREAD];
 extern uint64_t dur[MAX_APP_THREAD];
 extern uint64_t cp_buffer_time[MAX_APP_THREAD];
 extern uint64_t cp_time[MAX_APP_THREAD];
+extern uint64_t buffer_node_cnt[MAX_APP_THREAD];
+extern uint64_t internal_node_cnt[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
+extern uint64_t read_buffer_node_type_cnt[MAX_APP_THREAD];
+extern uint64_t read_internal_node_type_cnt[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
+extern uint64_t var_time[MAX_APP_THREAD];  
+
 
 int kReadRatio;
 int kThreadCount;
 int kNodeCount;
+std::atomic<int> false_res(0);
+std::atomic<int> true_res(0);
 
 
 uint64_t kKeySpace = 60 * define::MB;
@@ -115,7 +123,8 @@ public:
     insert_start_key = kWarmRatio * kKeySpace + kThreadCount * kCoroCnt * dsm->getMyNodeID() + id * kCoroCnt + coro_id;
   }
 
-  Request next() override {   //每个节点随机产生符合Zipf分布的键值 进行更新或搜索
+  // Request next(int i)  {   //每个节点随机产生符合Zipf分布的键值 进行更新或搜索
+Request next()  { 
     Request r;   
     r.is_search = rand_r(&seed) % 100 < kReadRatio;
     r.is_insert = !r.is_search;
@@ -141,10 +150,12 @@ public:
       r.k = to_key(tmp);
     }
     else {
+          // r.k = to_key(i);
       r.k = to_key(dis);
     }
 #else
     r.k = to_key(dis);
+    // r.k = to_key(i);
 #endif
 //#endif
     r.v = v_add_one(int2value(val));
@@ -174,7 +185,12 @@ RequstGen *gen_func(DSM* dsm, Request* req, int req_num, int coro_id, int coro_c
 void work_func(Tree *tree, const Request& r, CoroContext *ctx, int coro_id) {
   if (r.is_search) {
     Value v;
-    tree->search(r.k, v, ctx, coro_id);
+    // uint64_t k_v = key2int(r.k);
+    bool res = tree->search(r.k, v, ctx, coro_id);
+    if(!res) 
+     false_res ++;
+    else 
+     true_res ++;
   } else {
     tree->insert(r.k, r.v, ctx, coro_id, !test_insert);
   }
@@ -247,8 +263,11 @@ void thread_run(int id) {
   auto thread_id = dsm->getMyThreadID();
 
   while (!need_stop) {
-    auto r = gen->next();
+  // uint64_t end_warm_key = kWarmRatio * kKeySpace;
+  // for (uint64_t i = 1; i < end_warm_key; ++i) {  //线程多起来之后会更加分散
 
+    // auto r = gen->next(i);
+    auto r = gen->next();
     timer.begin();
     work_func(tree, r, nullptr, 0);
     auto us_10 = timer.end() / 100;
@@ -258,7 +277,12 @@ void thread_run(int id) {
     }
     latency[thread_id][0][us_10]++;
   }
+
 #endif
+  if(id == 0)
+    printf("false results: %d\n", false_res.load());
+  if(id == 0)
+    printf("true results: %d\n", true_res.load());
   printf("thread %d exit.\n", id);
 }
 
@@ -530,6 +554,9 @@ printf("No cache\n");
     uint64_t dur1=0;
     uint64_t cp_buffer = 0;
     uint64_t cp_time1 = 0;
+        uint64_t buffer_node = 0;
+        uint64_t read_buffer_node = 0;
+        uint64_t var_time_c = 0;
     for(int i = 0;i<MAX_APP_THREAD;i++)
     {
       buffer_loop_cnt += buffer_empty_loop_cnt[i];
@@ -542,7 +569,23 @@ printf("No cache\n");
       dur1 += dur[i];    
       cp_buffer += cp_buffer_time[i];
       cp_time1 += cp_time[i];
+      buffer_node += buffer_node_cnt[i];
+      read_buffer_node += read_buffer_node_type_cnt[i];
+      var_time_c += var_time[i];
     }
+
+    uint64_t read_node_type_cnt1[MAX_NODE_TYPE_NUM];
+    uint64_t read_internal_node[MAX_NODE_TYPE_NUM];
+    memset(read_node_type_cnt1, 0, sizeof(uint64_t) * MAX_NODE_TYPE_NUM);
+    memset(read_internal_node, 0, sizeof(uint64_t) * MAX_NODE_TYPE_NUM);
+    for (int i = 0; i < MAX_NODE_TYPE_NUM; ++i) {
+      for (int j = 0; j < MAX_APP_THREAD; ++j) {
+        read_node_type_cnt1[i] += internal_node_cnt[j][i];
+        read_internal_node[i] += read_internal_node_type_cnt[j][i];
+      }
+    }
+
+
 
     tree->clear_debug_info();
 
@@ -596,7 +639,15 @@ printf("No cache\n");
       printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
       printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
       // printf("insert avg: %f buffer loop cnt is %" PRIu64" ,buffer loop time is  %" PRIu64"  avg : %f \n",insert_total_time[0]*1.0/insert[0],buffer_loop_cnt,buffer_loop_time,buffer_loop_time*1.0/buffer_loop_cnt);
-      printf("insert avg: %f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy time avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_time1*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
+      printf("insert avg: %f ,var time:%f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy time avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],var_time_c*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_time1*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
+      printf("buffer cnt  %" PRIu64"\n",buffer_node);
+          for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
+        printf("node_type%d %lu   ", i, read_node_type_cnt1[i]);
+      }
+      printf("\n buffer cnt  %" PRIu64"\n",read_buffer_node);
+          for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
+        printf("node_type%d %lu   ", i, read_internal_node[i]);
+      }
     } 
 /*
     if (dsm->getMyNodeID() == 0) {

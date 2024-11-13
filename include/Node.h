@@ -164,7 +164,7 @@ public:
     uint8_t partial_len  : define::partial_len; //2bit
     uint8_t bn_padding1 : 6;  
     uint8_t partial[define::bPartialLenMax]; //16bit
-    uint8_t count_1  ; // 8bit
+    uint16_t count_1  ; // 8bit
     uint8_t count_2  ; //8bit
     uint16_t bn_padding2;  
   };
@@ -198,7 +198,7 @@ public:
     return true;
   }
 
-  static const uint64_t count_1_mask = (((1UL << define::count_1) - 1) << define::count_2);
+  static const uint64_t count_1_mask =(((1UL << define::nodeTypeNumBit) - 1) << 7);
   static const uint64_t count_2_mask = (((1UL << define::count_2) - 1));
 } __attribute__((packed));
 
@@ -411,6 +411,7 @@ public:
 class InternalBuffer {
 public:
   // for invalidation
+  // uint64_t count_1;
   GlobalAddress rev_ptr;
   BufferHeader hdr;
 
