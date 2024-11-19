@@ -1285,7 +1285,54 @@ re_read:
       r.is_on_chip = false;
       rs.push_back(r);
     }
-    dsm->read_batches_sync(rs,cxt,coro_id);
+    dsm->read_batches_new_sync(rs,cxt,coro_id);
+
+    for(int i =0;i<leaf_cnt;i++)
+    {
+      leaf = (Leaf_kv *)(leaf_buffer + i*define::allocAlignPageSize);
+      // uint64_t kk_v =  key2int(leaf->key);
+    //  printf("leaf key is %d %d\n",(int)key2int(leaf->key),cnt);
+ //     printf("leaf value is %d\n",(int)key2int(leaf->value));
+      if (!from_cache && leaf->rev_ptr != p_ptr[i]) {
+      auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
+      dsm->cas(leaf_addrs[i], leaf->rev_ptr, p_ptr[i], cas_buffer, false, cxt);
+      // dsm->cas_sync(leaf_addr, leaf->rev_ptr, p_ptr, cas_buffer, cxt);
+      }
+      // invalidation
+      if (!leaf->is_valid(p_ptr[i], from_cache)) {
+      leaf_cache_invalid[dsm->getMyThreadID()] ++;
+      return false;
+      }
+      if (!leaf->is_consistent()) {   //判断校验和的时候 ？？？  
+      retry_time ++;
+      read_leaf_retry[dsm->getMyThreadID()] ++;
+      goto re_read;
+      }
+    }
+  return true;
+}
+
+bool Tree::read_small_leaves(GlobalAddress* leaf_addrs, char *leaf_buffer,int leaf_cnt, GlobalAddress* p_ptr, bool from_cache,CoroContext *cxt, int coro_id) {  //read_batch  !!!问题在哪里！
+  try_read_leaf[dsm->getMyThreadID()] ++;
+  std::vector<RdmaOpRegion> rs;
+  int retry_time = 0;
+re_read:
+  std::memset(leaf_buffer, 0, leaf_cnt*define::allocAlignPageSize);
+  rs.clear();
+    Leaf_kv * leaf;
+    // 2.3.1 read the leaf
+//    auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaves_buffer(leaf_cnt); 
+    for(int i =0;i<leaf_cnt;i++)
+    {
+      RdmaOpRegion r;
+      memset(&r,0,sizeof(RdmaOpRegion));
+      r.source     = (uint64_t)leaf_buffer + i * define::allocAlignPageSize;
+      r.dest       = leaf_addrs[i];
+      r.size       = sizeof(Leaf_kv);
+      r.is_on_chip = false;
+      rs.push_back(r);
+    }
+    dsm->read_small_batches_sync(rs,cxt,coro_id);
 
     for(int i =0;i<leaf_cnt;i++)
     {
@@ -1484,9 +1531,9 @@ int Tree::faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, Glo
 
     auto faa_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
     auto faa_addr = GADD(old_e,sizeof(GlobalAddress));
-    // dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
+    dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
 
-
+/*
     RdmaOpRegion rs[2];
     memset(rs,0,sizeof(RdmaOpRegion)*2);
     rs[0].source     = (uint64_t)leaf_buffer;
@@ -1496,9 +1543,9 @@ int Tree::faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, Glo
     rs[1].source     = (uint64_t)faa_buffer;
     rs[1].dest       = faa_addr.val;
     rs[1].size       = 1;
-    rs[1].is_on_chip = false;
-
-    dsm->write_faa_sync(rs[0], rs[1],(1UL<<16),cxt);   //直接把counter1搞成两个字节
+    rs[1].is_on_chip = false;*/
+    dsm->faa_sync(faa_addr,(1UL<<16),faa_buffer,cxt);
+    // dsm->write_faa_sync(rs[0], rs[1],(1UL<<16),cxt);   //直接把counter1搞成两个字节
     // dsm->faa_boundary(faa_addr,(1<<32),faa_buffer,~0UL,false,cxt);
 
                 //  auto buffer_buffer1 =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
@@ -2292,7 +2339,7 @@ if(res)
 #ifdef USE_CN_CACHE
    for (int i = 0; i < new_bnode_num; ++ i) {
       // printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
-       index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      //  index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
    }
 #endif
   return true;
@@ -2351,7 +2398,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   }
   InternalBuffer old_b = *bnode;
   //读需要放在下一层的叶节点 read_batch
-  dsm->read_batches_sync(rs,cxt,coro_id);   //没读过来？？？搞成单次读呢？
+  dsm->read_batches_new_sync(rs,cxt,coro_id);   //没读过来？？？搞成单次读呢？
   //写叶节点
   auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
   
@@ -2902,7 +2949,7 @@ if(res)
 #ifdef USE_CN_CACHE
    for (int i = 0; i < new_bnode_num; ++ i) {
       printf("thread  %d 16 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(new_bnodes[i]->hdr));
-       index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      //  index_cache->add_to_cache(k,1,(InternalPage*)new_bnodes[i], GADD(bnode_addrs[i], sizeof(GlobalAddress) + sizeof(BufferHeader)));
    }
 #endif
   return true;
@@ -3235,7 +3282,7 @@ next:
       auto search_read_leaves_start = std::chrono::high_resolution_clock::now();
 #endif
       auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_range_buffer(); 
-      is_valid = read_leaves(leaf_addrs, leaf_buffer,leaf_cnt,leaves_ptr,buffer_from_cache_flag,cxt,coro_id);
+      is_valid = read_small_leaves(leaf_addrs, leaf_buffer,leaf_cnt,leaves_ptr,buffer_from_cache_flag,cxt,coro_id);
 #ifdef TEST_TIME
       auto search_read_leaves_stop = std::chrono::high_resolution_clock::now();
       auto search_read_leaves_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_read_leaves_stop - search_read_leaves_start);  

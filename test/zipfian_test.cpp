@@ -371,7 +371,7 @@ printf("Cache \n");
 #else 
 printf("No cache\n");
 #endif
-    sleep(2);
+    sleep(0.8);
     clock_gettime(CLOCK_REALTIME, &e);
     int microseconds = (e.tv_sec - s.tv_sec) * 1000000 +
                        (double)(e.tv_nsec - s.tv_nsec) / 1000;
@@ -611,8 +611,8 @@ printf("No cache\n");
 
     tree->clear_debug_info();
 
-//    save_latency(++ count);
-    if (count++ >= TEST_EPOCH) {
+   save_latency(++ count);
+    if (count >= TEST_EPOCH) {
       need_stop = true;
     }
 

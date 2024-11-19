@@ -46,7 +46,8 @@ public:
                   CoroContext *ctx = nullptr);
   void read_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx = nullptr);
   void read_batches_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx = nullptr, int coro_id = 0);
-
+  void read_batches_new_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx = nullptr, int coro_id = 0); 
+  void read_small_batches_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx = nullptr, int coro_id = 0);
   void write_batch(RdmaOpRegion *rs, int k, bool signal = true,
                    CoroContext *ctx = nullptr);
   void write_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx = nullptr);
@@ -111,6 +112,8 @@ public:
                          uint64_t *rdma_buffer, uint64_t mask = 63,
                          CoroContext *ctx = nullptr);
 
+  void faa(GlobalAddress gaddr,uint64_t add,uint64_t *rdma_buffer, bool signal,CoroContext *ctx);
+  void faa_sync(GlobalAddress gaddr,uint64_t add,uint64_t *rdma_buffer,CoroContext *ctx);
   // for on-chip device memory
   void read_dm(char *buffer, GlobalAddress gaddr, size_t size,
                bool signal = true, CoroContext *ctx = nullptr);

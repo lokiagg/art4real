@@ -26,6 +26,7 @@
 
 constexpr int kWriteOroMax =300;
 constexpr int kReadOroMax = 300;
+constexpr int kReadOroSmall = 10;
 constexpr int kQPMaxDepth = 4096;
 constexpr int kInlineDataMax = 220;
 
@@ -118,7 +119,8 @@ bool rdmaWrite(ibv_qp *qp, uint64_t source, uint64_t dest, uint64_t size,
                bool isSignaled = true, uint64_t wrID = 0);
 
 bool rdmaFetchAndAdd(ibv_qp *qp, uint64_t source, uint64_t dest, uint64_t add,
-                     uint32_t lkey, uint32_t remoteRKey);
+                     uint32_t lkey, uint32_t remoteRKey,bool singal = true,
+                         uint64_t wr_id = 0);
 bool rdmaFetchAndAddBoundary(ibv_qp *qp, uint64_t source, uint64_t dest,
                          uint64_t add, uint32_t lkey, uint32_t remoteRKey,
                          uint64_t boundary = 63, bool singal = true,

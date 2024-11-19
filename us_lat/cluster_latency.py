@@ -26,11 +26,7 @@ epoch_num = int(sys.argv[3])
 # epoch_start = 1
 # epoch_num = 10
 cluster_ips = [
-  '10.10.1.1',
-  '10.10.1.2',
-  '10.10.1.3',
-  '10.10.1.4',
-   '10.10.1.5',
+  '192.169.1.15',
 ][:node_num]
 
 lat_cnt = dict()
@@ -42,7 +38,9 @@ def get_sftp_client(hostname):
   port = 22
   client = paramiko.SSHClient()
   client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-  client.connect(hostname, port, compress=True)
+  private_key_file = Path.home() / '.ssh' / 'id_rsa'
+  print(str(private_key_file))
+  client.connect(hostname, port, key_filename=str(private_key_file),compress=True)
   return client.open_sftp()
 
 
