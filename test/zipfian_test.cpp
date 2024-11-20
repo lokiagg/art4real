@@ -92,7 +92,7 @@ std::atomic<int> true_res(0);
 
 uint64_t kKeySpace = 60 * define::MB;
 //uint64_t kKeySpace = 2000;
-double kWarmRatio = 0.2;
+double kWarmRatio = 0.1;
 double zipfan = 0;
 int kCoroCnt = 2;
 #ifdef TEST_INSERT
@@ -273,7 +273,7 @@ void thread_run(int id) {
   // for (uint64_t i = 1; i < end_warm_key; ++i) {  //线程多起来之后会更加分散
 
     // auto r = gen->next(i);
-    auto r = gen->next();
+    // auto r = gen->next();
     timer.begin();
     work_func(tree, r, nullptr, 0);
     auto us_10 = timer.end() / 100;
@@ -371,7 +371,7 @@ printf("Cache \n");
 #else 
 printf("No cache\n");
 #endif
-    sleep(0.8);
+    sleep(2);
     clock_gettime(CLOCK_REALTIME, &e);
     int microseconds = (e.tv_sec - s.tv_sec) * 1000000 +
                        (double)(e.tv_nsec - s.tv_nsec) / 1000;

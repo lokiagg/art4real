@@ -16,6 +16,8 @@
 
 // #define USE_CN_CACHE
 
+// extern double kWarmRatio;
+// extern uint64_t kKeySpace;
 double cache_miss[MAX_APP_THREAD];
 double cache_hit[MAX_APP_THREAD];
 uint64_t lock_fail[MAX_APP_THREAD];
@@ -3721,8 +3723,10 @@ void Tree::coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int
   auto thread_id = dsm->getMyThreadID();
 
   while (!need_stop) {
+  // uint64_t end_warm_key = 0.2 * 60 * define::MB;
+  // for (uint64_t i = 1; i < end_warm_key; ++i) {  //线程多起来之后会更加分散
     auto r = gen->next();
-
+    // auto r = gen->next(i);
     coro_timer.begin();
     work_func(this, r, &ctx, coro_id);
     auto us_10 = coro_timer.end() / 100;
