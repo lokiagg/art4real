@@ -273,7 +273,7 @@ void thread_run(int id) {
   // for (uint64_t i = 1; i < end_warm_key; ++i) {  //线程多起来之后会更加分散
 
     // auto r = gen->next(i);
-    // auto r = gen->next();
+    auto r = gen->next();
     timer.begin();
     work_func(tree, r, nullptr, 0);
     auto us_10 = timer.end() / 100;
