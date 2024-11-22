@@ -32,7 +32,7 @@ struct Request {
 class RequstGen {
 public:
   RequstGen() = default;
-  virtual Request next( ) { return Request{};
+  virtual Request next(  ) { return Request{};
    }
 };
 

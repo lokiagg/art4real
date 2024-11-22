@@ -72,6 +72,7 @@ uint64_t search_cnt[MAX_APP_THREAD];
 uint64_t search_time[MAX_APP_THREAD];
 uint64_t s_search_cache_time[MAX_APP_THREAD];
 uint64_t search_read_buffer_time[MAX_APP_THREAD];
+uint64_t search_read_internal_time[MAX_APP_THREAD];
 uint64_t search_read_leaf_time[MAX_APP_THREAD];
 uint64_t cache_ops_time[MAX_APP_THREAD];
 uint64_t buffer_loop[MAX_APP_THREAD];
@@ -104,6 +105,10 @@ uint64_t cp_buffer_time[MAX_APP_THREAD];
 thread_local CoroCall Tree::worker[MAX_CORO_NUM];
 thread_local CoroCall Tree::master;
 thread_local CoroQueue Tree::busy_waiting_queue;
+thread_local GlobalAddress leaf_addrs[MAX_CORO_NUM][256];
+thread_local GlobalAddress leaves_ptr[MAX_CORO_NUM][256];
+
+
 std::atomic<int> cnt = 0;
 std::atomic<int> search_cnt_at = 0;
 
@@ -112,6 +117,10 @@ uint64_t internal_node_cnt[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
 uint64_t read_buffer_node_type_cnt[MAX_APP_THREAD];
 uint64_t read_internal_node_type_cnt[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
 uint64_t var_time[MAX_APP_THREAD];  
+uint64_t search_buffer_cache_true[MAX_APP_THREAD];
+
+double buffer_empty_slot[MAX_APP_THREAD];
+uint64_t buffer_cnt_all[MAX_APP_THREAD];
 
 
 
@@ -465,6 +474,11 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
 #endif
         int start_idx = 0;
         if(buffer_from_cache_flag && buffer_entry_idx!= -1) start_idx = buffer_entry_idx;
+
+        // 不知道是不是对的
+        // start_idx = map_buffer_cnt[p.addr().val];
+        // TODO: CAS 的同时把 value 写进去，，写完之后 cas 槽
+faa_counter:
         start_idx = faa_buffer_counter_n_write_leaf(k,v,depth,leaf_addr,leaf_type ,klen,vlen,be_ptr,p.addr(),cas_buffer,cxt,coro_id);
         //当start_idx为0的时候就代表已经是256了
         for(int i= start_idx;i < 256 && i !=0 ;i++)  //等于256的时候 已经加1了
@@ -533,6 +547,7 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
             if(buffer_from_cache_flag)  buffer_slot[i].val = e.val;
             retry_cnt[dsm->getMyThreadID()][CAS_Buffer_EMPTY] ++;
             depth --;
+            goto faa_counter;
           }
         }
         }
@@ -554,7 +569,7 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
 #endif
       bp_node = (InternalBuffer *)buffer_buffer;
       // auto& records = bp_node->records;
-      if (!is_valid) {  // node deleted || outdated cache entry in cached node
+      if (!is_valid || bp_node->records[255] == BufferEntry::Null()) {  // node deleted || outdated cache entry in cached node
 #ifdef USE_CN_CACHE
         if (buffer_from_cache_flag) {
           // index_cache->invalidate(entry_ptr_ptr, entry_ptr); //invalid 父节点 失效了有必要去失效父节点吗 没必要失效父节点  只需要更改 父节点的某个槽就行啦
@@ -1261,7 +1276,7 @@ bool Tree::out_of_place_write_buffer_n_leaf(const Key &k, Value &v, int depth, G
     if(res)
     {
     //  printf("thread  %d 2 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)buffer->hdr);
-    //加buffer到cache  index_cache->add_to_cache(k, 1,(InternalPage*)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader))); 
+     //加buffer到cache index_cache->add_to_cache(k, 1,(InternalPage*)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader))); 
     }
 #endif
 
@@ -1397,11 +1412,11 @@ int Tree::faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, Glo
 {
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
     new (leaf_buffer) Leaf_kv(e_ptr,leaf_type,klen,vlen,k, v);
-    leaf_addr = dsm->alloc(sizeof(Leaf_kv));
+    if(leaf_addr == GlobalAddress::Null())    leaf_addr = dsm->alloc(sizeof(Leaf_kv));
 
     auto faa_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
     auto faa_addr = GADD(old_e,sizeof(GlobalAddress));
-    dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
+
 
 /*
     RdmaOpRegion rs[2];
@@ -1422,6 +1437,7 @@ int Tree::faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, Glo
             //  read_buffer_node(old_e, buffer_buffer1,0, depth, true,cxt, coro_id);
 
     int idx =  (*faa_buffer & (uint64_t)0xFFFF << 16) >> 16;
+    if(idx <256)     dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
     return idx;
 }
 
@@ -1429,20 +1445,49 @@ int Tree::faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, Glo
 bool Tree::out_of_place_write_leaf(const Key &k, Value &v, int depth, GlobalAddress& leaf_addr, int leaf_type ,int klen,int vlen,
                                    const GlobalAddress &e_ptr, BufferEntry &old_e, uint64_t *ret_buffer,
                                    CoroContext *cxt, int coro_id) {
+  bool unwrite = leaf_addr == GlobalAddress::Null();
+  auto slot_buffer =(char *) (dsm->get_rbuf(coro_id)).get_cas_buffer();
+
+
+  // allocate & write
+  /*
+  if (unwrite) {  // !ONLY allocate once
+    auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
+    new (leaf_buffer) Leaf_kv(e_ptr,leaf_type,klen,vlen,k, v);
+    leaf_addr = dsm->alloc(sizeof(Leaf_kv));
+    // write_cnt[dsm->getMyThreadID()]++;
+    // auto write_start = std::chrono::high_resolution_clock::now();
+    dsm->write_sync(leaf_buffer, leaf_addr,sizeof(Leaf_kv), cxt);
+    // auto write_stop = std::chrono::high_resolution_clock::now();
+    // auto write_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(write_stop - write_start);
+    // write_time[dsm->getMyThreadID()] += write_duration.count();
+  }
+  else {  // write the changed e_ptr inside leaf
+    auto ptr_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
+    *ptr_buffer = e_ptr;
+    // dsm->write((const char *)ptr_buffer, leaf_addr, sizeof(GlobalAddress), false, cxt);
+  }
+*/
   // cas entry
-  auto new_e = BufferEntry(0,get_partial(k,depth-1),1,leaf_type,leaf_addr);   
+   new(slot_buffer) BufferEntry(0,get_partial(k,depth-1),1,leaf_type,leaf_addr);  
+   dsm->write_sync(slot_buffer,e_ptr,8, cxt); 
+
   auto remote_cas = [=](){
     cas_cnt[dsm->getMyThreadID()] ++;
     // auto cas_start = std::chrono::high_resolution_clock::now();
-    bool res=dsm->cas_sync(e_ptr, (uint64_t)old_e, (uint64_t)new_e, ret_buffer, cxt); 
+    // bool res=dsm->cas_sync(e_ptr, (uint64_t)old_e, (uint64_t)new_e, ret_buffer, cxt); 
     // auto cas_stop = std::chrono::high_resolution_clock::now();
     // auto cas_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cas_stop - cas_start);
     // cas_time[dsm->getMyThreadID()] += cas_duration.count();   
-    return res;
+    // return res;
   };
-  bool res=remote_cas();
-  if(res) old_e = new_e;
-  return res;
+
+
+  // bool res=remote_cas();
+  // if(res) old_e = new_e;
+
+  return true;
+
 }
 
 
@@ -1764,7 +1809,7 @@ bool Tree::out_of_place_write_node_from_buffer(const Key &k, Value &v,const int 
       index_cache->add_to_cache(k, 0,node_pages[i], GADD(node_addrs[i], sizeof(GlobalAddress) + sizeof(Header)));
     }
  //   printf("thread  %d 14 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(buffernode->hdr));
-    index_cache->add_to_cache(k, 1,(InternalPage *)buffernode, GADD(bnode_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+    // index_cache->add_to_cache(k, 1,(InternalPage *)buffernode, GADD(bnode_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
   }
 #endif
 
@@ -1986,10 +2031,11 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   std::set<Key> s;
   std::map<char,std::vector<int>> mp;
   bool update_flag = false;
+  int reapeat_time = 0;
   for(int i = 255; i >= 0; i --){
     Key& tmp_k = leaves[i].key;
     char c = bnode->records[i].partial; // 不太确定这里拿到的是不是下一个字节
-    if(s.find(tmp_k) == s.end()){
+    if(s.find(tmp_k) == s.end()){  // s里面找不到
       if(tmp_k == k)  //有的话更新
       {
         auto update_leaf =(Leaf_kv*) (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
@@ -2000,6 +2046,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       mp[c].push_back(i);
       s.insert(tmp_k);
     }
+    else
+    reapeat_time ++;
   }
   int empty_slot = 256 - s.size() - (update_flag == false);
   if(empty_slot > define::threshold )
@@ -2024,6 +2072,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     if(!update_flag){
       BufferEntry leaf_b_entry(0,get_partial(k,depth-1),1,leaf_type,leaf_addr);
       old_page->records[idx] = leaf_b_entry;
+      old_page->hdr.count_1 ++;
+      
     }
     new (leaf_buffer) Leaf_kv(GADD(old_e.addr(),sizeof(GlobalAddress)+sizeof(BufferHeader)+idx*sizeof(BufferEntry)),leaf_type,klen,vlen,k,v);
     int write_num = update_flag? 1 :2;
@@ -2066,13 +2116,13 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
           // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
           index_cache->invalidate(entry_ptr_ptr, entry_ptr);
         }
-        //加buffer到cache index_cache->add_to_cache(k, 1,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+         //加buffer到cacheindex_cache->add_to_cache(k, 1,(InternalPage*)old_page, GADD(new_old_page_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
 #endif
         return true;
      }
     return false;
   }
-  else
+  else  // 空槽不足则分裂
   {
     int partial_len = find_next_diff(leaves, leaf_cnt, depth - 1);
     for(int i = depth -1;i<depth-1 +partial_len;i++) 
@@ -2109,6 +2159,9 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     std::set<Key> s1;
     std::map<char,std::vector<int>> mp1;
     new_leaf_partial = get_partial(k,depth-1);
+    if(new_node_num == 1 && partial_len ==0) mp1 = mp;
+    else
+    {
     for(int i = 255; i >= 0; i --){
       Key& tmp_k = leaves[i].key;
       char c = get_partial(leaves[i].key,depth-1); // 不太确定这里拿到的是不是下一个字节
@@ -2117,6 +2170,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
         s1.insert(tmp_k);
       }
     }
+    }
+
     // BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
     if(!update_flag) mp1[new_leaf_partial].push_back( -1);
     bnode_addrs = new GlobalAddress[mp1.size()+1];
@@ -2142,6 +2197,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     // assert(old_page->hdr.node_type )
     // printf("buffer ---> internal type is %d \n",old_page->hdr.node_type);
     // if(old_page->hdr.node_type == 7) assert(mp1.size() >128);
+    int vec_size = 0;
     for(auto& it : mp1){
       //char partial = it.first;
       auto& vec = it.second;
@@ -2154,6 +2210,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       int j = 0;
       auto bnode_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();  //可能在这里被覆盖掉了
       new_bnodes[new_bnode_num] = new (bnode_buffer)InternalBuffer();
+      vec_size += vec.size();
       for(auto& be : vec){
       if(be == -1)
       {
@@ -2162,6 +2219,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
         new_bnodes[new_bnode_num]->records[j].val = leaf_b_entry.val;
       }
       else{
+        assert(old_b.records[be].packed_addr.offset !=0);
         new_bnodes[new_bnode_num]->records[j].val = old_b.records[be].val; // 这里意思是第 i 个叶子的地址
         new_bnodes[new_bnode_num]->records[j].partial = get_partial(leaves[be].get_key(),depth); 
         // assert(new_bnodes[new_bnode_num]->records[j].val !=0);
@@ -2179,6 +2237,16 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       new_bnodes[new_bnode_num]->w_lock = 0;
       new_bnode_num ++;
     }
+    if(!update_flag) assert(vec_size == (257 - reapeat_time));
+    else assert(vec_size == (256 - reapeat_time));
+
+    // int count_total = 0;
+    // for(int i =0;i<new_bnode_num;i++) 
+    // {
+    //   count_total += new_bnodes[i]->hdr.count_1;
+    // }
+    // if(!update_flag) assert(count_total ==( 257 - reapeat_time));
+    // else assert(count_total == (256 - reapeat_time));
      
     //  printf("internal size is %d\n",mp1.size());
     //整一个write_batch  写所有的缓冲节点和叶节点 还有写旧的叶节点
@@ -2328,7 +2396,7 @@ bool Tree::insert_behind(const Key &k, Value &v, GlobalAddress p_ptr,int depth, 
     if (res) {
       inserted_idx = slot_id;
 #ifdef USE_CN_CACHE
-       //加buffer到cache index_cache->add_to_cache(k, 1,(InternalPage *)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
+        //加buffer到cacheindex_cache->add_to_cache(k, 1,(InternalPage *)buffer, GADD(b_addr, sizeof(GlobalAddress) + sizeof(BufferHeader)));
 #endif
       return true;
     }
@@ -2475,16 +2543,20 @@ next:
   if (p.child_type == 1) {
 
     auto buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
+    bool buffer_res = false;
+    bool flag_atc = false;
 
-     if(buffer_from_cache_flag)
+    if(buffer_from_cache_flag)
      {
       buffer_slot = cache_entry_buffer->records;
       bp_node = &buffer_node;
       bp_node->hdr.depth = depth;
       bp_node->rev_ptr = p_ptr;
+      bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
      }
      else
     {
+read_buffer:
 #ifdef TEST_TIME
       auto read_buffer_start = std::chrono::high_resolution_clock::now();
 #endif
@@ -2525,8 +2597,9 @@ next:
         auto cache_op_start = std::chrono::high_resolution_clock::now();
 #endif
       if (depth == bhdr.depth && !buffer_from_cache_flag) {
+        flag_atc = true;
             // printf("thread  %d 18 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(bp_node->hdr));
-      index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      // index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
       }
 #ifdef TEST_TIME
         auto cache_op_stop = std::chrono::high_resolution_clock::now();
@@ -2553,8 +2626,7 @@ next:
       auto search_buffer_loop_start = std::chrono::high_resolution_clock::now();
 #endif
       int leaf_cnt = 0;
-      GlobalAddress leaf_addrs[256];
-      GlobalAddress leaves_ptr[256];
+
 
       uint8_t partial = get_partial(k, bhdr.depth + bhdr.partial_len);
       int k_i = 0;
@@ -2578,14 +2650,17 @@ next:
         }
         else 
         {
-          leaf_addrs[leaf_cnt] = bp_node->records[k_i].addr();
-          leaves_ptr[leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + k_i*sizeof(BufferEntry));
+          leaf_addrs[coro_id][leaf_cnt] = bp_node->records[k_i].addr();
+          leaves_ptr[coro_id][leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress)+sizeof(BufferHeader) + k_i*sizeof(BufferEntry));
           leaf_cnt ++;   
         }
       }
       if(bp_node->records[k_i] == BufferEntry::Null())
         break;
       }
+      buffer_empty_slot[dsm->getMyThreadID()] +=k_i*1.0/256;
+      buffer_cnt_all[dsm->getMyThreadID()]++;
+
 #ifdef TEST_TIME
       auto search_buffer_loop_stop = std::chrono::high_resolution_clock::now();
       auto search_buffer_loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_buffer_loop_stop - search_buffer_loop_start);  
@@ -2593,15 +2668,39 @@ next:
 #endif
       if(leaf_cnt == 0)
       {
+        if(buffer_from_cache_flag)
+        {
+          buffer_from_cache_flag = false;
+          goto read_buffer;
+        }
         search_res = false;
         goto search_finish;
       }
+      if(!buffer_from_cache_flag && flag_atc)
+      {
+        #ifdef USE_CN_CACHE
+#ifdef TEST_TIME
+        auto cache_op_start = std::chrono::high_resolution_clock::now();
+#endif
+      if (depth == bhdr.depth && !buffer_from_cache_flag) {
+        // flag_atc = true;
+            // printf("thread  %d 18 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(bp_node->hdr));
+      index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
+      }
+#ifdef TEST_TIME
+        auto cache_op_stop = std::chrono::high_resolution_clock::now();
+  auto cache_op_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(cache_op_stop - cache_op_start);  
+  cache_ops_time[dsm->getMyThreadID()] += cache_op_duration.count();
+#endif
+#endif
+      }      
+
       //read_batch 都读过来检查 
 #ifdef TEST_TIME
       auto search_read_leaves_start = std::chrono::high_resolution_clock::now();
 #endif
       auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_range_buffer(); 
-      is_valid = read_small_leaves(leaf_addrs, leaf_buffer,leaf_cnt,leaves_ptr,buffer_from_cache_flag,cxt,coro_id);
+      is_valid = read_small_leaves(leaf_addrs[coro_id], leaf_buffer,leaf_cnt,leaves_ptr[coro_id],buffer_from_cache_flag,cxt,coro_id);
 #ifdef TEST_TIME
       auto search_read_leaves_stop = std::chrono::high_resolution_clock::now();
       auto search_read_leaves_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_read_leaves_stop - search_read_leaves_start);  
@@ -2631,10 +2730,16 @@ next:
       // 2.3 Check if it is the key we search
       if (res) {
         v = leaf->get_value();
+        search_buffer_cache_true[dsm->getMyThreadID()] ++;
         search_res = true;
       goto search_finish;
       }
 
+    }
+    if(buffer_from_cache_flag)
+    {
+      buffer_from_cache_flag = false;
+      goto read_buffer;
     }
     search_res = false;
     goto search_finish;
@@ -2645,9 +2750,19 @@ next:
   // 3.1 read the node
 if(p.child_type == 2)
 {
+#ifdef TEST_TIME
+      auto read_internal_start = std::chrono::high_resolution_clock::now();
+#endif
   page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth, from_cache,cxt, coro_id);
   p_node = (InternalPage *)page_buffer;
+#ifdef TEST_TIME
+      auto read_internal_stop = std::chrono::high_resolution_clock::now();
+      auto read_internal_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_internal_stop - read_internal_start);  
+      search_read_internal_time[dsm->getMyThreadID()] += read_internal_duration.count();
+#endif      
+
+
 
   if (!is_valid) {  // node deleted || outdated cache entry in cached node
     // re-read node entry
@@ -3039,6 +3154,7 @@ void Tree::coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int
       us_10 = LATENCY_WINDOWS - 1;
     }
     latency[thread_id][coro_id][us_10]++;
+    // if(need_stop) break;
   }
 }
 
@@ -3129,8 +3245,12 @@ void Tree::clear_debug_info() {
   memset(search_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(s_search_cache_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(search_read_buffer_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(search_read_internal_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(search_read_leaf_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(cache_ops_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(buffer_loop,0,sizeof(uint64_t)*MAX_APP_THREAD);
-
+  memset(bufffer_from_cache_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(search_buffer_cache_true,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(buffer_empty_slot,0,sizeof(double)*MAX_APP_THREAD);
+  memset(buffer_cnt_all,0,sizeof(uint64_t)*MAX_APP_THREAD);
 }
