@@ -1098,7 +1098,7 @@ next:
   if (depth == hdr.depth) {
   // auto add_cache_start = std::chrono::high_resolution_clock::now();
   flag_atc = true;
-    index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
+    // index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
     // add_cache_cnt[dsm->getMyThreadID()] ++;
   // auto add_cache_stop = std::chrono::high_resolution_clock::now();
   // auto add_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(add_cache_stop - add_cache_start);  
@@ -1123,16 +1123,16 @@ next:
   for (int i = 0; i < max_num; ++ i) {
     auto old_e = p_node->records[i];
     if (old_e != InternalEntry::Null() && old_e.partial == get_partial(k, hdr.depth + hdr.partial_len)) {
-// #ifdef TREE_ENABLE_CACHE
-//       if(flag_atc){
-//         auto add_cache_start = std::chrono::high_resolution_clock::now();
-//         index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
-//         add_cache_cnt[dsm->getMyThreadID()] ++;
-//         auto add_cache_stop = std::chrono::high_resolution_clock::now();
-//         auto add_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(add_cache_stop - add_cache_start);  
-//         add_cache[dsm->getMyThreadID()] += add_cache_duration.count();
-//       }
-// #endif
+#ifdef TREE_ENABLE_CACHE
+      if(flag_atc){
+        auto add_cache_start = std::chrono::high_resolution_clock::now();
+        index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
+        add_cache_cnt[dsm->getMyThreadID()] ++;
+        auto add_cache_stop = std::chrono::high_resolution_clock::now();
+        auto add_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(add_cache_stop - add_cache_start);  
+        add_cache[dsm->getMyThreadID()] += add_cache_duration.count();
+      }
+#endif
       p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header) + i * sizeof(InternalEntry));
       p = old_e;
       from_cache = false;
