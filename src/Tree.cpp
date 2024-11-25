@@ -80,6 +80,8 @@ uint64_t buffer_loop[MAX_APP_THREAD];
 int depth_test[MAX_APP_THREAD];
 
 uint64_t bufffer_from_cache_cnt[MAX_APP_THREAD];
+uint64_t buffer_node_all[MAX_APP_THREAD];
+double   buffer_slot[MAX_APP_THREAD];
 
 // tbb::concurrent_unordered_map<uint64_t,int> map_buffer_cnt;
 /*
@@ -603,10 +605,10 @@ faa_counter:
         if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
 #endif        
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
-        // if(from_cache)  这里为啥还要失效一次
-        // {
-          // index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
-        // }
+        if(from_cache)  // 这里为啥还要失效一次 因为没有获取到锁 
+        {
+          index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
+        }
         auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
         dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
         p = *(InternalEntry *)entry_buffer;
@@ -2586,6 +2588,7 @@ read_buffer:
         retry_flag = INVALID_Buffer_NODE;
         goto next;
       }
+
     }
       bhdr=bp_node->hdr;
     //2.1 check partial key
@@ -2779,11 +2782,16 @@ if(p.child_type == 2)
     goto next;
   }
 
+
   // 3.2 Check header
   hdr = p_node->hdr;
-  // if (depth == hdr.depth) {
-    // index_cache->add_to_cache(k,0,p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
-  // }
+#ifdef USE_CN_CACHE  
+  if (depth == hdr.depth) {
+    index_cache->add_to_cache(k,0,p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
+  }
+#endif
+
+
 
 
   for (int i = 0; i < hdr.partial_len; ++ i) {
@@ -2812,6 +2820,7 @@ if(p.child_type == 2)
       goto next;  // search next level
     }
   }
+  //在内部节点里面没找到  但是这个内部节点也要加cache  已经加了
 }
 }
 else{   //parent是一个buffernode

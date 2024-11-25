@@ -116,7 +116,7 @@ public:
     extra_k = MAX_KEY_SPACE_SIZE + kThreadCount * kCoroCnt * dsm->getMyNodeID() + local_thread_id * kCoroCnt + coro_id;
     flag = false;
   }
-/*
+
   Request next() override {
     cur = (cur + coro_cnt) % req_num;
     if (req[cur].is_insert) {
@@ -137,7 +137,7 @@ public:
     req[cur].v = int2value(randval(e));  // make value different per-epoch
     return req[cur];
   }
-*/
+
 private:
   DSM *dsm;
   Request* req;
@@ -334,10 +334,10 @@ void thread_run(int id) {
     auto thread_id = dsm->getMyThreadID();
 
     while (!need_stop) {     
-      // auto r = gen->next();
+      auto r = gen->next();
 
       timer.begin();
-      // work_func(tree, r, nullptr, 0);
+      work_func(tree, r, nullptr, 0);
       auto us_10 = timer.end() / 100;
 
       if (us_10 >= LATENCY_WINDOWS) {

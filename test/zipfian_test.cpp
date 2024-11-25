@@ -78,10 +78,14 @@ extern uint64_t var_time[MAX_APP_THREAD];
 extern uint64_t search_cnt[MAX_APP_THREAD];
 extern uint64_t search_time[MAX_APP_THREAD];
 extern uint64_t s_search_cache_time[MAX_APP_THREAD];
+extern uint64_t search_read_internal_time[MAX_APP_THREAD];
 extern uint64_t search_read_buffer_time[MAX_APP_THREAD];
 extern uint64_t search_read_leaf_time[MAX_APP_THREAD];
 extern uint64_t cache_ops_time[MAX_APP_THREAD];
 extern uint64_t buffer_loop[MAX_APP_THREAD];
+extern double buffer_empty_slot[MAX_APP_THREAD];
+extern uint64_t buffer_cnt_all[MAX_APP_THREAD];
+
 
 int kReadRatio;
 int kThreadCount;
@@ -567,9 +571,12 @@ printf("No cache\n");
     uint64_t search_t = 0;
     uint64_t s_search_cache = 0;
     uint64_t s_read_buffer = 0;
+    uint64_t s_read_internal = 0;
     uint64_t s_read_leaf = 0;
     uint64_t s_buffer_loop = 0;
     uint64_t s_cache_op = 0;
+    double buffer_s =0;
+    uint64_t buffer_n_t = 0;
 
     for(int i = 0;i<MAX_APP_THREAD;i++)
     {
@@ -590,9 +597,12 @@ printf("No cache\n");
       search_t += search_time[i];
       s_search_cache += s_search_cache_time[i];
       s_read_buffer += search_read_buffer_time[i];
+      s_read_internal += search_read_internal_time[i];
     s_read_leaf += search_read_leaf_time[i];
     s_buffer_loop += buffer_loop[i];
     s_cache_op += cache_ops_time[i];
+      buffer_s += buffer_empty_slot[i];
+      buffer_n_t +=buffer_cnt_all[i];
 
     }
 
@@ -632,7 +642,7 @@ printf("No cache\n");
         per_MN_tp[j]=MN_cap[j]*1.0/microseconds;
       }       
     uint64_t cluster_tp = dsm->sum((uint64_t)(per_node_tp * 1000));
-
+    printf("cluster tp:%" PRIu64" \n",cluster_tp);
     printf("%d, throughput %.4f ,duration %d cache hit rate: %lf\n", dsm->getMyNodeID(), per_node_tp, microseconds,hit * 1.0 / all);
     uint64_t MN_cluster_tp[MEMORY_NODE_NUM];
     memset(MN_cluster_tp,0,sizeof(uint64_t)*MEMORY_NODE_NUM);
@@ -662,8 +672,8 @@ printf("No cache\n");
       printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
       // printf("insert avg: %f buffer loop cnt is %" PRIu64" ,buffer loop time is  %" PRIu64"  avg : %f \n",insert_total_time[0]*1.0/insert[0],buffer_loop_cnt,buffer_loop_time,buffer_loop_time*1.0/buffer_loop_cnt);
       printf("insert avg: %f ,var time:%f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy time avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],var_time_c*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_time1*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
-      printf("search cnt: %" PRIu64",search time :%" PRIu64" ,search avg: %f ,search cache avg: %f ,read buffer :%f ,cache op time :%f ,buffer loop time :%f ,read leaf:%f \n",search_c,search_t,search_t*1.0/search_c,s_search_cache*1.0/search_c,s_read_buffer*1.0/search_c,s_cache_op*1.0/search_c,s_buffer_loop*1.0/search_c,s_read_leaf*1.0/search_c);
-      
+      printf("search cnt: %" PRIu64",search time :%" PRIu64" ,search avg: %f ,search cache avg: %f,read internal avg: %f ,read buffer :%f ,cache op time :%f ,buffer loop time :%f ,read leaf:%f \n",search_c,search_t,search_t*1.0/search_c,s_search_cache*1.0/search_c,s_read_internal*1.0/search_c,s_read_buffer*1.0/search_c,s_cache_op*1.0/search_c,s_buffer_loop*1.0/search_c,s_read_leaf*1.0/search_c);
+      printf("buffer empty rate :%f \n",1-(buffer_s*1.0/buffer_n_t));
       printf("buffer cnt  %" PRIu64"\n",buffer_node);
           for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
         printf("node_type%d %lu   ", i, read_node_type_cnt1[i]);
