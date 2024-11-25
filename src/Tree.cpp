@@ -11,6 +11,7 @@
 #include <vector>
 #include <atomic>
 #include <mutex>
+#define TEST_TIME
 
 
 double cache_miss[MAX_APP_THREAD];
@@ -30,6 +31,16 @@ uint64_t read_node_type[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
 uint64_t latency[MAX_APP_THREAD][MAX_CORO_NUM][LATENCY_WINDOWS];
 volatile bool need_stop = false;
 uint64_t retry_cnt[MAX_APP_THREAD][MAX_FLAG_NUM];
+uint64_t search_cnt[MAX_APP_THREAD];
+uint64_t search_time[MAX_APP_THREAD];
+uint64_t search_cache_time[MAX_APP_THREAD];
+uint64_t read_internal[MAX_APP_THREAD];
+uint64_t add_cache[MAX_APP_THREAD];
+uint64_t read_leaf_time[MAX_APP_THREAD];
+uint64_t read_root[MAX_APP_THREAD];
+uint64_t add_cache_cnt[MAX_APP_THREAD];
+uint64_t ad_cache_cnt[MAX_APP_THREAD];
+
 
 thread_local CoroCall Tree::worker[MAX_CORO_NUM];
 thread_local CoroCall Tree::master;
@@ -112,6 +123,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   int max_num;
   uint64_t* cas_buffer;
   int debug_cnt = 0;
+  bool flag_atc = false;
 
 #ifdef TREE_ENABLE_WRITE_COMBINING
   lock_res = local_lock_table->acquire_local_write_lock(k, v, &busy_waiting_queue, cxt, coro_id);
@@ -207,10 +219,10 @@ next:
       if (leaf->get_value() == v) {
         goto insert_finish;
       }
-#ifdef TREE_ENABLE_IN_PLACE_UPDATE
-      // in place update leaf
-      in_place_update_leaf(k, v, p.addr(), leaf, cxt, coro_id);
-#else
+// #ifdef TREE_ENABLE_IN_PLACE_UPDATE
+//       // in place update leaf
+//       in_place_update_leaf(k, v, p.addr(), leaf, cxt, coro_id);
+// #else
       // out of place update leaf
       bool res = out_of_place_update_leaf(k, v, depth, leaf_addr, p_ptr, p, node_ptr, cxt, coro_id, !is_update);
 #ifdef TREE_ENABLE_CACHE
@@ -233,7 +245,7 @@ next:
         retry_flag = CAS_LEAF;
         goto next;
       }
-#endif
+// #endif
       goto insert_finish;
     }
 
@@ -256,6 +268,8 @@ next:
   page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth, from_cache, cxt, coro_id);
   p_node = (InternalPage *)page_buffer;
+  ad_cache_cnt[dsm->getMyThreadID()] ++;
+
 
   if (!is_valid) {  // node deleted || outdated cache entry in cached node
 #ifdef TREE_ENABLE_CACHE
@@ -280,6 +294,7 @@ next:
     index_cache->invalidate(entry_ptr_ptr, entry_ptr);
   }
   if (depth == hdr.depth) {
+    flag_atc = true;
     index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
   }
 #else
@@ -327,7 +342,9 @@ next:
     auto old_e = p_node->records[i];
     if (old_e != InternalEntry::Null() && old_e.partial == get_partial(k, depth)) {
       p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header) + i * sizeof(InternalEntry));
+      // if(!old_e.is_leaf && flag_atc) index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header))); 
       p = old_e;
+      
       from_cache = false;
       depth ++;
       retry_flag = FIND_NEXT;
@@ -343,6 +360,7 @@ next:
       bool res = out_of_place_write_leaf(k, v, depth + 1, leaf_addr, get_partial(k, depth), e_ptr, old_e, node_ptr, cas_buffer, cxt, coro_id);
       // cas success, return
       if (res) {
+        
         goto insert_finish;
       }
       // cas fail, check
@@ -906,11 +924,15 @@ bool Tree::insert_behind(const Key &k, Value &v, int depth, GlobalAddress& leaf_
 
 bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {
   assert(dsm->is_register());
-
+  search_cnt[dsm->getMyThreadID()] ++;
+#ifdef TEST_TIME
+  auto start = std::chrono::high_resolution_clock::now();
+#endif
   // handover
   bool search_res = false;
   std::pair<bool, bool> lock_res = std::make_pair(false, false);
   bool read_handover = false;
+  bool flag_atc = false;
 
   // traversal
   GlobalAddress p_ptr;
@@ -944,8 +966,17 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {
 
   // search local cache
 #ifdef TREE_ENABLE_CACHE
+{
+#ifdef TEST_TIME
+      auto search_cache_start = std::chrono::high_resolution_clock::now();
+#endif
   from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, entry_idx);
-  if (from_cache) { // cache hit
+#ifdef TEST_TIME
+        auto search_cache_stop = std::chrono::high_resolution_clock::now();
+      auto search_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_cache_stop - search_cache_start);  
+      search_cache_time[dsm->getMyThreadID()] += search_cache_duration.count();
+#endif
+}  if (from_cache) { // cache hit
     assert(entry_idx >= 0);
     p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
     p = entry_ptr->records[entry_idx];
@@ -957,9 +988,17 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {
     depth = 0;
   }
 #else
+#ifdef TEST_TIME
+auto read_root_start = std::chrono::high_resolution_clock::now();
+#endif
   p_ptr = root_ptr_ptr;
   p = get_root_ptr(cxt, coro_id);
   depth = 0;
+#ifdef TEST_TIME
+      auto read_root_stop = std::chrono::high_resolution_clock::now();
+      auto read_root_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_root_stop - read_root_start);  
+      read_root_time[dsm->getMyThreadID()] += read_root_duration.count();
+#endif
 #endif
   depth ++;
   cache_depth = depth;
@@ -978,8 +1017,17 @@ next:
   // 2. If we are at a leaf, read the leaf
   if (p.is_leaf) {
     // 2.1 read the leaf
+#ifdef TEST_TIME
+  auto read_leaf_start = std::chrono::high_resolution_clock::now();
+#endif
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_leaf_buffer();
     is_valid = read_leaf(p.addr(), leaf_buffer, std::max((unsigned long)p.kv_len, sizeof(Leaf)), p_ptr, from_cache, cxt, coro_id);
+#ifdef TEST_TIME
+  auto read_leaf_stop = std::chrono::high_resolution_clock::now();
+  auto read_leaf_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_leaf_stop - read_leaf_start);  
+  read_leaf_time[dsm->getMyThreadID()] += read_leaf_duration.count();
+#endif
+
 
     if (!is_valid) {
 #ifdef TREE_ENABLE_CACHE
@@ -1012,10 +1060,19 @@ next:
 
   // 3. Find out a node
   // 3.1 read the node
+{
+#ifdef TEST_TIME
+  auto read_internal_start = std::chrono::high_resolution_clock::now();
+#endif
   page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth, from_cache, cxt, coro_id);
   p_node = (InternalPage *)page_buffer;
-
+#ifdef TEST_TIME
+  auto read_internal_stop = std::chrono::high_resolution_clock::now();
+  auto read_internal_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_internal_stop - read_internal_start);  
+  read_internal[dsm->getMyThreadID()] += read_internal_duration.count();
+#endif
+}
   if (!is_valid) {  // node deleted || outdated cache entry in cached node
 #ifdef TREE_ENABLE_CACHE
     // invalidate the old node cache
@@ -1039,7 +1096,14 @@ next:
     index_cache->invalidate(entry_ptr_ptr, entry_ptr);
   }
   if (depth == hdr.depth) {
+  // auto add_cache_start = std::chrono::high_resolution_clock::now();
+  flag_atc = true;
     index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
+    // add_cache_cnt[dsm->getMyThreadID()] ++;
+  // auto add_cache_stop = std::chrono::high_resolution_clock::now();
+  // auto add_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(add_cache_stop - add_cache_start);  
+  // add_cache[dsm->getMyThreadID()] += add_cache_duration.count();
+
   }
 #else
   UNUSED(type_correct);
@@ -1059,6 +1123,16 @@ next:
   for (int i = 0; i < max_num; ++ i) {
     auto old_e = p_node->records[i];
     if (old_e != InternalEntry::Null() && old_e.partial == get_partial(k, hdr.depth + hdr.partial_len)) {
+// #ifdef TREE_ENABLE_CACHE
+//       if(flag_atc){
+//         auto add_cache_start = std::chrono::high_resolution_clock::now();
+//         index_cache->add_to_cache(k, p_node, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
+//         add_cache_cnt[dsm->getMyThreadID()] ++;
+//         auto add_cache_stop = std::chrono::high_resolution_clock::now();
+//         auto add_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(add_cache_stop - add_cache_start);  
+//         add_cache[dsm->getMyThreadID()] += add_cache_duration.count();
+//       }
+// #endif
       p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header) + i * sizeof(InternalEntry));
       p = old_e;
       from_cache = false;
@@ -1069,6 +1143,11 @@ next:
   }
 
 search_finish:
+#ifdef TEST_TIME
+      auto stop = std::chrono::high_resolution_clock::now();
+      auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);  
+      search_time[dsm->getMyThreadID()] += duration.count();
+#endif
 #ifdef TREE_ENABLE_CACHE
   if (!read_handover) {
     auto hit = (cache_depth == 1 ? 0 : (double)cache_depth / depth);
@@ -1502,4 +1581,12 @@ void Tree::clear_debug_info() {
   memset(try_read_node, 0, sizeof(uint64_t) * MAX_APP_THREAD);
   memset(read_node_type, 0, sizeof(uint64_t) * MAX_APP_THREAD * MAX_NODE_TYPE_NUM);
   memset(retry_cnt, 0, sizeof(uint64_t) * MAX_APP_THREAD * MAX_FLAG_NUM);
+  memset(search_cnt, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+  memset(search_time, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+  memset(search_cache_time, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+  memset(read_internal, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+  memset(read_leaf_time, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+  memset(read_root, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+    memset(add_cache, 0, sizeof(uint64_t) * MAX_APP_THREAD);
+      memset(add_cache_cnt, 0, sizeof(uint64_t) * MAX_APP_THREAD);
 }

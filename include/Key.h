@@ -111,6 +111,7 @@ inline Key operator-(const Key& a, uint8_t b) {
 }
 
 inline Key int2key(uint64_t key) {
+  /*
 #ifdef KEY_SPACE_LIMIT
   key = key % (kKeyMax - kKeyMin) + kKeyMin;
 #endif
@@ -119,6 +120,24 @@ inline Key int2key(uint64_t key) {
     auto shr = (define::keyLen - i) * 8;
     res.at(i - 1) = (shr >= 64u ? 0 : ((key >> shr) & ((1 << 8) - 1))); // Is equivalent to padding zero for short key
   }
+  return res;*/
+  #ifdef KEY_SPACE_LIMIT
+  key = key % (kKeyMax - kKeyMin) + kKeyMin;
+#endif
+  Key res{};
+  uint16_t keylen=0;
+  uint64_t a=key;
+  while(a!=0)
+  {
+    a= a>>8;
+    keylen++;
+  }
+  for (int i = 1; i <=(int) keylen; ++ i) {
+    auto shr = (keylen - i) * 8;
+    res.at(i - 1) = ((uint64_t)shr >= 64u ? 0 : ((key >> (uint64_t)shr) & ((1 << 8) - 1))); // Is equivalent to padding zero for short key
+  }
+  std::fill(res.begin() + keylen, res.end() -1 , 0);
+  // res.at(64)=keylen;
   return res;
 }
 

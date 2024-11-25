@@ -31,6 +31,16 @@ extern uint64_t read_node_repair[MAX_APP_THREAD];
 extern uint64_t try_read_node[MAX_APP_THREAD];
 extern uint64_t read_node_type[MAX_APP_THREAD][MAX_NODE_TYPE_NUM];
 extern uint64_t retry_cnt[MAX_APP_THREAD][MAX_FLAG_NUM];
+extern uint64_t search_cnt[MAX_APP_THREAD];
+extern uint64_t search_time[MAX_APP_THREAD];
+extern uint64_t search_cache_time[MAX_APP_THREAD];
+extern uint64_t read_internal[MAX_APP_THREAD];
+extern uint64_t add_cache[MAX_APP_THREAD];
+extern uint64_t read_leaf_time[MAX_APP_THREAD];
+extern uint64_t read_root[MAX_APP_THREAD];
+extern uint64_t add_cache_cnt[MAX_APP_THREAD];
+uint64_t true_res = 0;
+uint64_t false_res = 0;
 
 int kReadRatio;
 int kThreadCount;
@@ -38,7 +48,7 @@ int kNodeCount;
 
 
 uint64_t kKeySpace = 60 * define::MB;
-double kWarmRatio = 0.2;
+double kWarmRatio = 1;
 double zipfan = 0.99;
 int kCoroCnt = 2;
 #ifdef TEST_INSERT
@@ -134,7 +144,10 @@ RequstGen *gen_func(DSM* dsm, Request* req, int req_num, int coro_id, int coro_c
 void work_func(Tree *tree, const Request& r, CoroContext *ctx, int coro_id) {
   if (r.is_search) {
     Value v;
-    tree->search(r.k, v, ctx, coro_id);
+    
+    bool res = tree->search(r.k, v, ctx, coro_id);
+    if(res) true_res ++;
+    else false_res ++;
   } else {
     tree->insert(r.k, r.v, ctx, coro_id, !test_insert);
   }
@@ -291,7 +304,7 @@ int main(int argc, char *argv[]) {
 
   clock_gettime(CLOCK_REALTIME, &s);
   while(!need_stop) {
-    sleep(0.5);
+    sleep(0.8);
     clock_gettime(CLOCK_REALTIME, &e);
     int microseconds = (e.tv_sec - s.tv_sec) * 1000000 +
                        (double)(e.tv_nsec - s.tv_nsec) / 1000;
@@ -357,6 +370,28 @@ int main(int argc, char *argv[]) {
         all_retry_cnt[i] += retry_cnt[j][i];
       }
     }
+
+    uint64_t search_c = 0;
+    uint64_t search_t = 0;
+    uint64_t search_cache = 0;
+    uint64_t read_i = 0;
+    uint64_t add_c = 0;
+    uint64_t read_l = 0;
+    uint64_t read_r = 0;
+    uint64_t add_cache_c = 0;
+
+    for (int i = 0; i < MAX_APP_THREAD; ++i) {
+    search_c += search_cnt[i];
+    search_t += search_time[i];
+    search_cache += search_cache_time[i];
+    read_i += read_internal[i];
+    add_c += add_cache[i];
+    read_l += read_leaf_time[i];
+    read_r += read_root[i];
+    add_cache_c += add_cache_cnt[i];
+    }
+
+
     tree->clear_debug_info();
 
     save_latency(++ count);
@@ -364,7 +399,7 @@ int main(int argc, char *argv[]) {
       need_stop = true;
     }
 
-    if (dsm->getMyNodeID() == 1) {
+    if (dsm->getMyNodeID() == 0) {
       printf("total %lu", all_retry_cnt[0]);
       for (int i = 1; i < MAX_FLAG_NUM; ++ i) {
         printf(",  retry%d %lu", i, all_retry_cnt[i]);
@@ -388,11 +423,15 @@ int main(int argc, char *argv[]) {
       printf("read invalid leaf rate: %lf\n", leaf_cache_invalid_cnt * 1.0 / try_read_leaf_cnt);
       printf("read node repair rate: %lf\n", read_node_repair_cnt * 1.0 / try_read_node_cnt);
       printf("read invalid node rate: %lf\n", all_retry_cnt[INVALID_NODE] * 1.0 / try_read_node_cnt);
+      printf("search cnt:%" PRIu64",search time avg:%f,read root avg:%f ,search cache avg:%f ,read internal avg:%f ,add cache times  %f,add cache avg:%f ,read leaf avg:%f .\n",search_c,search_t*1.0/search_c,read_r*1.0/search_c,search_cache*1.0/search_c,read_i*1.0/search_c,add_cache_c*1.0/search_c,add_c*1.0/search_c,read_l*1.0/search_c);
       for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
         printf("node_type%d %lu   ", i, read_node_type_cnt[i]);
       }
+      printf("true: %" PRIu64",false: %" PRIu64"\n",true_res,false_res);
       printf("\n\n");
     }
+    true_res =0;
+    false_res = 0;
   }
   printf("[END]\n");
   for (int i = 0; i < kThreadCount; i++) {
