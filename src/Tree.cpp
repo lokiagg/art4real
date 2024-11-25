@@ -235,12 +235,13 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   int parent_parent_type = -1;
   bool buffer_from_cache_flag = 0;
   int first_buffer = 0;
-  InternalPage* parent_page = nullptr;
+  // InternalPage* parent_page = nullptr;
   GlobalAddress parent_page_ptr;
   bool parent_add_to_cache_flag = false;
   bool buffer_type_change = false;
   bool buffer_initialized = false;
   Key path;
+  InternalPage parent_page;
 
 
 
@@ -310,6 +311,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
       assert(entry_idx >= 0);
       cache_entry_parent = entry_ptr;
       cache_entry_parent_ptr = entry_ptr_ptr;
+      parent_page.hdr.depth = entry_ptr->depth;
     }     
     bp.val = p.val;
     if(!first_buffer) assert(cache_entry_parent !=0);  //只要是从cache拿到的一定会拿到一个父节点  不见得不见得 如果是深度为2的buffer
@@ -571,7 +573,7 @@ faa_counter:
 #endif
       bp_node = (InternalBuffer *)buffer_buffer;
       // auto& records = bp_node->records;
-      if (!is_valid || bp_node->records[255] == BufferEntry::Null()) {  // node deleted || outdated cache entry in cached node
+      if (!is_valid) {  // node deleted || outdated cache entry in cached node
 #ifdef USE_CN_CACHE
         if (buffer_from_cache_flag) {
           // index_cache->invalidate(entry_ptr_ptr, entry_ptr); //invalid 父节点 失效了有必要去失效父节点吗 没必要失效父节点  只需要更改 父节点的某个槽就行啦
@@ -605,14 +607,32 @@ faa_counter:
         if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
 #endif        
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
-        if(from_cache)  // 这里为啥还要失效一次 因为没有获取到锁 
-        {
-          index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
-        }
+
         auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
-        dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
+        dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);  //在这里直接重新读父节点会怎样  感觉可以直接重新读父节点 反正都要读 
         p = *(InternalEntry *)entry_buffer;
-        // if(entry_idx != -1) cache_entry_parent->records[entry_idx] = p;
+        // if(depth>1)
+        // {
+
+        
+        // auto parent_page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
+        // dsm->read_sync((char *)parent_page_buffer,GADD(p_ptr,-(sizeof(GlobalAddress)+sizeof(Header)+sizeof(InternalEntry)*entry_idx)), sizeof(InternalPage), cxt);  //在这里直接重新读父节点会怎样  感觉可以直接重新读父节点 反正都要读 
+        // parent_page = *(InternalPage *)parent_page_buffer;
+        // p = parent_page.records[entry_idx];
+
+        // // if(entry_idx != -1) cache_entry_parent->records[entry_idx] = p;
+        // if(from_cache)  // 这里为啥还要失效一次 因为没有获取到锁   在这里直接用这个新的槽换一下父节点呢？  直接重新读一下
+        // {
+        //    index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
+        // }
+        // assert(parent_page.hdr.depth <7);
+        // index_cache->add_to_cache_new(k, 0,&parent_page, GADD(p_ptr,-(sizeof(Header)+sizeof(InternalEntry)*entry_idx)),cache_entry_parent,cache_entry_parent_ptr);
+        // }
+        // else{
+        // auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
+        // dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);  //在这里直接重新读父节点会怎样  感觉可以直接重新读父节点 反正都要读 
+        // p = *(InternalEntry *)entry_buffer;
+        // }
           buffer_from_cache_flag =false;
           retry_flag = Buffer_Switch_type;
           from_cache = false;
@@ -649,7 +669,7 @@ faa_counter:
   read_internal_node_time_this += read_internal_node_duration.count(); 
 #endif
   p_node = (InternalPage *)page_buffer;
-  parent_page = p_node;
+  parent_page = *p_node;
   parent_page_ptr = p.addr();  //先不着急加到cache里面去   有可能会变成进行节点类型转换
 
 
@@ -739,7 +759,8 @@ l1:
  
       retry_flag = FIND_NEXT;
       parent_type = 0;
-      if(depth > 1) entry_idx =i;
+      // if(depth > 1) entry_idx =i;
+      entry_idx =i;
       path[depth] = p.partial;
       depth ++;
       level ++;
@@ -2001,9 +2022,26 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 
   // leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
   auto leaves_buffer =(dsm->get_rbuf(coro_id)).get_range_buffer();
+  auto buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer(); 
   for(int i =0;i<256;i++)  //把所有叶子读过来
   {
   if(buffer_from_cache_flag && bnode->records[i].val == 0)   bnode->records[i].val = buffer_slot[i].val;
+  while(bnode->records[i].val == 0)
+  {
+#ifdef TEST_TIME
+      auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
+#endif
+      
+      bool is_valid = read_buffer_node(old_e.addr(), buffer_buffer, p_ptr, depth -1, from_cache,cxt, coro_id);   
+#ifdef TEST_TIME
+
+      auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
+      auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
+      read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count();  
+      read_buffer_node_time_this += read_buffer_node_duration.count();  
+#endif
+      bnode = (InternalBuffer *)buffer_buffer;
+  }
      RdmaOpRegion r;
         r.dest       = bnode->records[i].addr();
         r.source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
