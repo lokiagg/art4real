@@ -6,7 +6,7 @@ project(SMART)
 
 #Compiler options
 # set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wsign-compare -g")   # -DNDEBUG
-set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wsign-compare -O3 -g")  # -O3
+set(CMAKE_C_FLAGS "-mavx512f -mavx512bw -mavx512dq -Wall -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wsign-compare -O3 -g")  # -O3
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++17")
 
 #Link Options
@@ -20,6 +20,7 @@ option (TEST_TIME "For debugging" OFF)
 option (LONG_TEST_EPOCH "Use big epoch num and long epoch duration" OFF)
 option (SHORT_TEST_EPOCH "Use small epoch num and short epoch duration" OFF)
 option (MIDDLE_TEST_EPOCH "Use middle epoch num and short epoch duration" OFF)
+option (ENABLE_AVX "Faster buffer traversal" ON)
 
 if(STATIC_MN_IP)
     add_definitions(-DSTATIC_ID_FROM_IP)
@@ -61,6 +62,12 @@ if(MIDDLE_TEST_EPOCH)
     add_definitions(-DMIDDLE_TEST_EPOCH)
 else()
     remove_definitions(-DMIDDLE_TEST_EPOCH)
+endif()
+
+if(ENABLE_AVX)
+    add_definitions(-DAVX_ACC)
+else()
+    remove_definitions(-DAVX_ACC)
 endif()
 
 #Tree Options (compile into SMART/baselines; these options should be set up one after one; SMART is the ART that turns on all options)

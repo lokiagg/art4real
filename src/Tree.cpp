@@ -13,6 +13,7 @@
 #include <mutex>
 #include <fstream>
 #include <chrono>
+#include <immintrin.h>
 
 // #define USE_CN_CACHE
 
@@ -107,8 +108,8 @@ uint64_t cp_buffer_time[MAX_APP_THREAD];
 thread_local CoroCall Tree::worker[MAX_CORO_NUM];
 thread_local CoroCall Tree::master;
 thread_local CoroQueue Tree::busy_waiting_queue;
-thread_local GlobalAddress leaf_addrs[MAX_CORO_NUM][256];
-thread_local GlobalAddress leaves_ptr[MAX_CORO_NUM][256];
+thread_local GlobalAddress leaf_addrs[MAX_CORO_NUM][32];
+thread_local GlobalAddress leaves_ptr[MAX_CORO_NUM][32];
 
 
 std::atomic<int> cnt = 0;
@@ -2464,6 +2465,40 @@ bool Tree::insert_behind(const Key &k, Value &v, GlobalAddress p_ptr,int depth, 
   assert(false);
 }
 
+void avx_compare(void* p, char partial, std::vector<int>& v_k_i){
+  BufferEntry* bp_node = (BufferEntry*) p;
+  int k_i = 0;
+    
+  // 设置包含 'partial' 的 AVX-512 寄存器
+  __m512i partial_vec = _mm512_set1_epi8(partial);
+
+  for (; k_i <= 256 - 8; k_i += 8) {
+      // 加载 64 个 BufferEntry 的第一个字节
+      __m512i first_bytes = _mm512_maskz_loadu_epi8(0x101010101010101ULL, &bp_node[k_i].partial);
+
+      // 比较第一个字节
+      __mmask64 mask = _mm512_cmpeq_epi8_mask(partial_vec, first_bytes);
+
+      // 将掩码转换为整数，检查哪些 BufferEntry 的 partial 字段匹配
+      uint64_t mask64 = (uint64_t)mask;
+      for (int i = 0; i < 8; ++i) {
+        if ((mask64 & (1ULL << (i*8) )) && bp_node[k_i + i] != BufferEntry::Null()) {
+          v_k_i.push_back(k_i + i);
+        }
+    }
+  }
+
+  // 处理剩余的元素
+  for (; k_i < 256; ++k_i) {
+    if (bp_node[k_i] != BufferEntry::Null() && bp_node[k_i].partial == partial) {
+      v_k_i.push_back(k_i);
+    }
+    if (bp_node[k_i] == BufferEntry::Null()) {
+      break;
+    }
+  }
+}
+
 bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///设置上限
 #ifdef TEST_TIME
   auto start = std::chrono::high_resolution_clock::now();
@@ -2603,6 +2638,7 @@ next:
       bp_node = &buffer_node;
       bp_node->hdr.depth = depth;
       bp_node->rev_ptr = p_ptr;
+      memset(bp_node->records, 0, sizeof(bp_node->records));
       bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
      }
      else
@@ -2676,7 +2712,13 @@ read_buffer:
     //2.2 if all partial key match search from the start else from the end 
 //    if(get_partial(k, bhdr.depth + bhdr.partial_len -1 ) == bhdr.partial[bhdr.partial_len -1 ] )
 //    {
+      std::vector<int> v_k_i;
+      v_k_i.reserve(32);
 #ifdef TEST_TIME
+      if(buffer_from_cache_flag){
+        std::memcpy(bp_node->records, buffer_slot.data(), buffer_slot.size() * sizeof(uint64_t));
+        // bp_node->records[k_i].val = buffer_slot[k_i].val;
+      }
       auto search_buffer_loop_start = std::chrono::high_resolution_clock::now();
 #endif
       int leaf_cnt = 0;
@@ -2684,35 +2726,20 @@ read_buffer:
 
       uint8_t partial = get_partial(k, bhdr.depth + bhdr.partial_len);
       int k_i = 0;
+#ifdef AVX_ACC
+      avx_compare(bp_node->records,partial,v_k_i);
+#else
       for(; k_i < 256 ;k_i++)
       {
-        if(buffer_from_cache_flag){
-            bp_node->records[k_i].val = buffer_slot[k_i].val;
-          }
       if(bp_node->records[k_i] != BufferEntry::Null()&&bp_node->records[k_i].partial == partial )
       {
-      //  assert(bp_node->records[i].addr().nodeID == 0);
-        if(bp_node->records[k_i].node_type == 1 || bp_node->records[k_i].node_type == 2)   //是一个缓冲节点 或者内部节点 继续往下找 
-        {
-          bp = bp_node->records[k_i];
-          p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + k_i*sizeof(BufferEntry));
-          depth ++;
-          parent_type = 1;
-          from_cache = false;
-          retry_flag = FIND_NEXT;
-          goto next;
-        }
-        else 
-        {
-          leaf_addrs[coro_id][leaf_cnt] = bp_node->records[k_i].addr();
-          leaves_ptr[coro_id][leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress) + k_i*sizeof(BufferEntry));
-          leaf_cnt ++;   
-        }
+        v_k_i.push_back(k_i);
       }
       if(bp_node->records[k_i] == BufferEntry::Null())
         break;
       }
-      buffer_empty_slot[dsm->getMyThreadID()] +=k_i*1.0/256;
+#endif
+      buffer_empty_slot[dsm->getMyThreadID()] +=v_k_i.size()*1.0/256;
       buffer_cnt_all[dsm->getMyThreadID()]++;
 
 #ifdef TEST_TIME
@@ -2720,6 +2747,12 @@ read_buffer:
       auto search_buffer_loop_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_buffer_loop_stop - search_buffer_loop_start);  
       buffer_loop[dsm->getMyThreadID()] += search_buffer_loop_duration.count();
 #endif
+      for(int i = 0; i < v_k_i.size(); i++){
+        int kk_i = v_k_i[i];
+        leaf_addrs[coro_id][leaf_cnt] = bp_node->records[kk_i].addr();
+        leaves_ptr[coro_id][leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress) + kk_i*sizeof(BufferEntry));
+        leaf_cnt ++;
+      }
       if(leaf_cnt == 0)
       {
         if(buffer_from_cache_flag)
