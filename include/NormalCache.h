@@ -27,7 +27,7 @@ struct CacheEntry {
   CacheEntry() {}
   CacheEntry(const InternalPage* p_node, int node_type, const GlobalAddress& addr) :
              depth(p_node->hdr.depth), node_type(node_type), addr(addr){
-    
+    if(node_type == 1) depth = (((InternalBuffer*)p_node)->hdr.depth);
     if(node_type == 0)
     {
       for (int i = 0; i < node_type_to_num(p_node->hdr.type()); ++ i) {
@@ -37,8 +37,8 @@ struct CacheEntry {
     }
     else{
       for (int i = 0; i < 256; ++ i) {
-        const auto& e = p_node->records[i];
-        records.push_back(e);
+        const auto& e = ((InternalBuffer*)p_node)->records[i];
+        records.push_back(*((InternalEntry*)&e));
     }
     }
     assert(depth<7);

@@ -28,10 +28,16 @@ InternalPage * page = const_cast<InternalPage*>(p_node);
 v = (uint64_t)page->hdr;
   // auto depth = p_node->hdr.depth - 1;
     int depth = p_node->hdr.depth - 1;
+    int partial_len = p_node->hdr.partial_len;
+    if(node_type == 1)
+    {
+      depth = (((InternalBuffer*)p_node)->hdr.depth) - 1;
+      partial_len = (((InternalBuffer*)p_node)->hdr.partial_len) ;
+    } 
   if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
 
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
-  for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
+  for (int i = 0; i < partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
   auto new_entry = new CacheEntry(p_node,node_type,node_addr);
 
@@ -52,8 +58,8 @@ bool RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPag
   assert(node_type <= 1);
   InternalPage * page = const_cast<InternalPage*>(p_node);
   v = (uint64_t)page->hdr;
-  
-  int depth = p_node->hdr.depth - 1;
+    int depth = p_node->hdr.depth - 1;
+    if(node_type == 1) depth = (((InternalBuffer*)p_node)->hdr.depth) - 1;
   if (depth == 0) return false;   //如果是基数树根节点指向的第一个内部节点不放在cache？
 
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节

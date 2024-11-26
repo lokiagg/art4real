@@ -413,14 +413,16 @@ public:
   // for invalidation
   // uint64_t count_1;
   GlobalAddress rev_ptr;
-  BufferHeader hdr;
+
 
   BufferEntry records[256];
+  BufferHeader hdr;
   union {
   struct {
     uint8_t w_lock    : 1;
     uint8_t r_padding : 7;
   };
+
   uint8_t lock_byte;
   };
 
