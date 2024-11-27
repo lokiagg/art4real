@@ -2638,7 +2638,6 @@ next:
       bp_node = &buffer_node;
       bp_node->hdr.depth = depth;
       bp_node->rev_ptr = p_ptr;
-      memset(bp_node->records, 0, sizeof(bp_node->records));
       bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
      }
      else
@@ -2714,11 +2713,11 @@ read_buffer:
 //    {
       std::vector<int> v_k_i;
       v_k_i.reserve(32);
-#ifdef TEST_TIME
       if(buffer_from_cache_flag){
         std::memcpy(bp_node->records, buffer_slot.data(), buffer_slot.size() * sizeof(uint64_t));
         // bp_node->records[k_i].val = buffer_slot[k_i].val;
       }
+#ifdef TEST_TIME
       auto search_buffer_loop_start = std::chrono::high_resolution_clock::now();
 #endif
       int leaf_cnt = 0;
