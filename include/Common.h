@@ -126,7 +126,7 @@ constexpr uint32_t LeafCntBit      = 7;
 constexpr uint32_t nodeTypeNumBit  = 5;
 constexpr uint32_t mnIdBit         = 8;
 constexpr uint32_t offsetBit       = 48 - ALLOC_ALLIGN_BIT;
-constexpr uint32_t hPartialLenMax  = 5;
+constexpr uint32_t hPartialLenMax  = 3;
 
 //Buffer ndoe
 constexpr uint32_t partial_len  = 2;

@@ -213,32 +213,33 @@ public:
     uint8_t depth : 8;
     uint8_t node_type   : define::nodeTypeNumBit;
     uint8_t partial_len : 8 - define::nodeTypeNumBit;
+    uint16_t count;
     uint8_t partial[define::hPartialLenMax];
-    uint8_t empty : 7;
+    uint8_t empty;
   };
 
   uint64_t val;
   };
 
 public:
-  Header() : depth(0), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
-  Header(int depth) : depth(depth), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
-  Header(NodeType node_type,Header hdr) : depth(hdr.depth), node_type(node_type), partial_len(hdr.partial_len)
+  Header() : depth(0), node_type(0), partial_len(0), count(256) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
+  Header(int depth) : depth(depth), node_type(0), partial_len(0), count(256) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
+  Header(NodeType node_type,Header hdr) : depth(hdr.depth), node_type(node_type), partial_len(hdr.partial_len),count(hdr.count)
    { //memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);
     //  for(int i =0 ;i<partial_len;i++)
     //  partial[i] = hdr.partial[i]; 
     memcpy(partial,hdr.partial,sizeof(uint8_t)*partial_len);
    }
-  Header(const Key &k, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
+  Header(const Key &k, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len), count(256) {
     for (int i = 0; i < partial_len; ++ i) partial[i] = get_partial(k, depth + i);
 
   }
-  Header(char* partial, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
+  Header(char* partial, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len), count(256) {
     // for (int i = 0; i < partial_len; ++ i) this->partial[i] = partial[i];
         memcpy(this->partial,partial,sizeof(uint8_t)*partial_len);
 
   }
-  Header(BufferHeader bhdr) : depth(bhdr.depth),node_type(static_cast<uint8_t>(NODE_256)),partial_len(bhdr.partial_len)
+  Header(BufferHeader bhdr) : depth(bhdr.depth),node_type(static_cast<uint8_t>(NODE_256)),partial_len(bhdr.partial_len), count(256)
   {
     // for(int i =0;i<partial_len;i++) partial[i] = bhdr.partial[i];
         memcpy(partial,bhdr.partial,sizeof(uint8_t)*partial_len);
@@ -260,6 +261,7 @@ public:
     new_hdr.partial_len = old_hdr.partial_len - diff_idx - 1;
     new_hdr.depth = old_hdr.depth + diff_idx + 1;
     new_hdr.node_type = old_hdr.node_type;
+    new_hdr.count = old_hdr.count;
     assert(new_hdr.depth !=0);
     return new_hdr;
   }
@@ -350,11 +352,14 @@ public:
 public:
   InternalEntry() : val(0) {}
   InternalEntry(uint8_t partial, uint8_t child_type,const GlobalAddress &addr) :
-                partial(partial), child_type(child_type), empty(0),node_type(0),packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT} {}
+                partial(partial), child_type(child_type), empty(1),node_type(0),packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT}
+                 {
+                  
+                 }
   InternalEntry(uint8_t partial, uint8_t child_type,NodeType node_type, const GlobalAddress &addr) :
                 partial(partial),child_type(child_type), empty(0), node_type(static_cast<uint8_t>(node_type)),  packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT} {}
   InternalEntry(NodeType node_type, const InternalEntry& e) :
-                partial(e.partial),child_type(e.child_type), empty(1), node_type(static_cast<uint8_t>(node_type)),  packed_addr(e.packed_addr) {}
+                partial(e.partial),child_type(e.child_type), empty(0), node_type(static_cast<uint8_t>(node_type)),  packed_addr(e.packed_addr) {}
   InternalEntry(uint8_t partial, const InternalEntry& e) :
                 partial(partial), child_type(e.child_type), empty(0), node_type(e.node_type),packed_addr(e.packed_addr) {}
   InternalEntry(uint8_t partial, const BufferEntry& e) :
@@ -387,17 +392,18 @@ public:
   // for invalidation
   GlobalAddress rev_ptr;
 
-  Header hdr;
+
   InternalEntry records[256];
+  Header hdr;
   uint8_t l_padding;
 
 public:
   InternalPage() { std::fill(records, records + 256, InternalEntry::Null()); }
-  InternalPage(const Key &k, int partial_len, int depth, NodeType node_type, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), hdr(k, partial_len, depth, node_type) ,l_padding(0){
+  InternalPage(const Key &k, int partial_len, int depth, NodeType node_type, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), hdr(k, partial_len, depth, node_type) ,l_padding(99){
     std::fill(records, records + 256, InternalEntry::Null());
   }
-
-  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.type() != NODE_DELETED && hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr); }
+// hdr.node_type!= NODE_DELETED
+  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr); }
 } __attribute__((packed));
 
  
@@ -470,7 +476,7 @@ public:
     lock_byte = 0;
   }
 
-  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr) && !w_lock ; }
+  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr) ; }
   void unlock() { w_lock = 0; };
   void lock() { w_lock = 1; };
 

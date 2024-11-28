@@ -31,11 +31,11 @@ v = (uint64_t)page->hdr;
     int partial_len = p_node->hdr.partial_len;
     if(node_type == 1)
     {
-      depth = (((InternalBuffer*)p_node)->hdr.depth) - 1;
-      partial_len = (((InternalBuffer*)p_node)->hdr.partial_len) ;
+      // depth = (((InternalBuffer*)p_node)->hdr.depth) - 1;
+      partial_len = 0 ;
     } 
   if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
-
+  assert(partial_len == 0);
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
   for (int i = 0; i < partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
@@ -63,6 +63,7 @@ bool RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPag
   if (depth == 0) return false;   //如果是基数树根节点指向的第一个内部节点不放在cache？
 
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
+    assert(p_node->hdr.partial_len == 0);
   for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
   auto new_entry = new CacheEntry(p_node,node_type,node_addr);
@@ -377,13 +378,13 @@ next:    while(!ret.empty()) {
         else{       //如果是最接近叶节点的缓冲节点直接返回该缓冲节点  或者返回多个槽？
             entry_ptr = cache_entry;
             entry_ptr_ptr = item.entry_ptr_ptr;
-            for (int i = 0; i < (int)cache_entry->records.size();i ++) {    //找第一个空槽
-              if(cache_entry->records[i] == InternalEntry::Null())
-              {
-                buffer_entry_idx = i ;
-                break;
-              }
-              }  //一个个查看slot
+            // for (int i = 0; i < (int)cache_entry->records.size();i ++) {    //找第一个空槽
+            //   if(cache_entry->records[i].val == 0)
+            //   {
+            //     buffer_entry_idx = i ;
+            //     break;
+            //   }
+            //   }  //一个个查看slot
             // for (int i = cache_entry->records.size() - 1; i >=0;i --) {    //从后往前找
             //   if(cache_entry->records[i] != InternalEntry::Null() && i < cache_entry->records.size() -1)
             //   {
@@ -423,11 +424,14 @@ next:    while(!ret.empty()) {
                 goto next;
               }
               // assert(cache_entry_parent->depth!=entry_ptr->depth);
+              
               uint8_t partial = k.at(ret.top().next_idx);
               for (int i = 0; i < (int)cache_entry->records.size(); ++ i) {  //一个个查看slot
                 auto& e = cache_entry->records[i];
-                if (e != BufferEntry::Null()&&e != InternalEntry::Null() && e.partial == partial) {
+                if (cache_entry->records[i].val != 0 && e != BufferEntry::Null()&&e != InternalEntry::Null() && e.partial == partial) {
                 entry_idx = i;   //返回这个buffer在父节点的下标
+                assert(entry_idx < cache_entry->records.size());
+                assert(cache_entry_parent->node_type == 0);
                 return true;
                 }
               }
@@ -482,6 +486,7 @@ next:
     if(cache_entry == 0) return !ret.empty();
     parent_type = cache_entry->node_type;
     // ret.push(std::make_pair(std::make_pair(&(r_entry->second.cache_entry), cache_entry), idx + 1));
+    assert(cache_entry->depth <7 && cache_entry->node_type<2);
     ret.push(SearchRet(&(r_entry->second.cache_entry), cache_entry, idx + 1));//存下来的是CacheEntry  相当于存下来了一整个内部节点或者缓冲节点 idx存的是
     parent=cache_entry;
     node = (CacheNode *)(r_entry->second.next);  //看下一层还能不能继续往下 应该是在插入函数修改的  next应该指向的是和该内部节点所指向的所有内部节点
@@ -522,7 +527,7 @@ void RadixCache::search_range_from_cache(const Key &from, const Key &to, std::ve
 void RadixCache::invalidate(CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) {
 
   if (entry_ptr_ptr && entry_ptr && __sync_bool_compare_and_swap(entry_ptr_ptr, entry_ptr, 0UL)) {
-    // if(entry_ptr->node_type == 0)
+    if(entry_ptr->node_type == 0)
     {
       free_manager->free(entry_ptr->content_size());
      _safely_delete(entry_ptr);
