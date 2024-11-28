@@ -2803,6 +2803,7 @@ read_buffer:
           leaves_ptr[coro_id][leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress) + k_i*sizeof(BufferEntry));
           leaf_cnt ++;   
         }
+        v_k_i.push_back(k_i);
       }
 
       }
