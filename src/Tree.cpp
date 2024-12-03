@@ -2783,7 +2783,7 @@ read_buffer:
         break;
       if(bp_node->records[k_i] != BufferEntry::Null()&&bp_node->records[k_i].partial == partial )
       {
-        assert(bp_node->records[k_i].addr().nodeID == 0);
+        // assert(bp_node->records[k_i].addr().nodeID == 0);
         if(bp_node->records[k_i].node_type == 1 || bp_node->records[k_i].node_type == 2)   //是一个缓冲节点 或者内部节点 继续往下找 
         {
           // bp = bp_node->records[k_i];
@@ -2803,7 +2803,7 @@ read_buffer:
           leaves_ptr[coro_id][leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress) + k_i*sizeof(BufferEntry));
           leaf_cnt ++;   
         }
-        v_k_i.push_back(k_i);
+        // v_k_i.push_back(k_i);
       }
 
       }
