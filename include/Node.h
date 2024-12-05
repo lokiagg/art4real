@@ -414,7 +414,7 @@ public:
 
 
 
-class InternalBuffer {
+class alignas(8) InternalBuffer {
 public:
   // for invalidation
   // uint64_t count_1;

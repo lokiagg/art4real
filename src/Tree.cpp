@@ -108,8 +108,8 @@ uint64_t cp_buffer_time[MAX_APP_THREAD];
 thread_local CoroCall Tree::worker[MAX_CORO_NUM];
 thread_local CoroCall Tree::master;
 thread_local CoroQueue Tree::busy_waiting_queue;
-thread_local GlobalAddress leaf_addrs[MAX_CORO_NUM][32];
-thread_local GlobalAddress leaves_ptr[MAX_CORO_NUM][32];
+thread_local GlobalAddress leaf_addrs[MAX_CORO_NUM][256];
+thread_local GlobalAddress leaves_ptr[MAX_CORO_NUM][256];
 
 
 std::atomic<int> cnt = 0;
@@ -604,7 +604,9 @@ faa_counter:
       }
         }
         // if(buffer_from_cache_flag) bp_node->records = cache_entry_buffer->records;
-        bool res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,buffer_slot,from_cache,buffer_from_cache_flag,p, p_ptr,buffer_type_change,cxt,coro_id);
+        bool res = false;
+        if(start_idx == 256)
+          res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,buffer_slot,from_cache,buffer_from_cache_flag,p, p_ptr,buffer_type_change,cxt,coro_id);
         // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
         // {
           // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
@@ -680,6 +682,7 @@ faa_counter:
 #endif
 }
   p_node = (InternalPage *)page_buffer;
+  assert(p_node->hdr.partial_len == 0);  //新增的
 
   parent_page = *p_node;
   parent_page_ptr = p.addr();  //先不着急加到cache里面去   有可能会变成进行节点类型转换
@@ -719,6 +722,7 @@ internal_node:
   }
 #endif
 //  if(hdr.depth == 0) goto insert_finish;
+
   for (int i = 0; i < hdr.partial_len; ++ i) {
     if (get_partial(k, hdr.depth + i) != hdr.partial[i]) {
       // need split
@@ -2119,7 +2123,8 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   }
   int empty_slot = 256 - s.size() - (update_flag == false);
   if(empty_slot > define::threshold )
-  { int count = 0;
+  { // 去重
+    int count = 0;
     // GlobalAddress new_old_page_addr = dsm->alloc(sizeof(InternalBuffer)); //还是搞成异地写 得多一次cas
     auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_buffer_buffer();
     InternalBuffer * old_page;
@@ -2803,13 +2808,12 @@ read_buffer:
           leaves_ptr[coro_id][leaf_cnt]  = GADD(p.addr(), sizeof(GlobalAddress) + k_i*sizeof(BufferEntry));
           leaf_cnt ++;   
         }
-        // v_k_i.push_back(k_i);
-      }
 
       }
+       //  v_k_i.push_back(k_i);
+      }
 #endif
-      buffer_empty_slot[dsm->getMyThreadID()] +=v_k_i.size()*1.0/256;
-      buffer_cnt_all[dsm->getMyThreadID()]++;
+
 
 #ifdef TEST_TIME
       auto search_buffer_loop_stop = std::chrono::high_resolution_clock::now();
@@ -2839,6 +2843,8 @@ read_buffer:
         auto cache_op_start = std::chrono::high_resolution_clock::now();
 #endif
       if (depth == bhdr.depth && !buffer_from_cache_flag) {
+              buffer_empty_slot[dsm->getMyThreadID()] += bhdr.count_1*1.0/256;
+      buffer_cnt_all[dsm->getMyThreadID()]++;
         // flag_atc = true;
             // printf("thread  %d 18 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)(bp_node->hdr));
       index_cache->add_to_cache(k, 1,(InternalPage*)bp_node, GADD(p.addr(), sizeof(GlobalAddress) ));
@@ -3280,13 +3286,13 @@ void Tree::range_query_on_page(InternalPage* page, bool from_cache, int depth,
 }
 
 
-void Tree::run_coroutine(GenFunc gen_func, WorkFunc work_func, int coro_cnt, Request* req, int req_num) {
+void Tree::run_coroutine(GenFunc gen_func, WorkFunc work_func, int coro_cnt, int thread_cnt, Request* req, int req_num) {
   using namespace std::placeholders;
 
   assert(coro_cnt <= MAX_CORO_NUM);
   for (int i = 0; i < coro_cnt; ++i) {
     RequstGen *gen = gen_func(dsm, req, req_num, i, coro_cnt);
-    worker[i] = CoroCall(std::bind(&Tree::coro_worker, this, _1, gen, work_func, i));
+    worker[i] = CoroCall(std::bind(&Tree::coro_worker, this, _1, gen, work_func, i, thread_cnt));
   }
 
   master = CoroCall(std::bind(&Tree::coro_master, this, _1, coro_cnt));
@@ -3295,7 +3301,7 @@ void Tree::run_coroutine(GenFunc gen_func, WorkFunc work_func, int coro_cnt, Req
 }
 
 
-void Tree::coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int coro_id) {
+void Tree::coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int coro_id, int kThreadCount) {
   CoroContext ctx;
   ctx.coro_id = coro_id;
   ctx.master = &master;
@@ -3306,18 +3312,22 @@ void Tree::coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int
 
   while (!need_stop) {
   // uint64_t end_warm_key = 0.2 * 60 * define::MB;
-  // for (uint64_t i = 1; i < end_warm_key; ++i) {  //线程多起来之后会更加分散
+  // uint64_t all_loader_thread = kThreadCount * dsm->getClusterSize();
+  // uint64_t shard = end_warm_key / all_loader_thread;
+  // for (uint64_t i = 1; i < shard; ++i) {  //线程多起来之后会更加分散
     auto r = gen->next();
-    // auto r = gen->next(i);
-    coro_timer.begin();
-    work_func(this, r, &ctx, coro_id);
-    auto us_10 = coro_timer.end() / 100;
+    // if(i % all_loader_thread == thread_id){
+      // auto r = gen->next(i + shard * thread_id);
+      coro_timer.begin();
+      work_func(this, r, &ctx, coro_id);
+      auto us_10 = coro_timer.end() / 100;
 
-    if (us_10 >= LATENCY_WINDOWS) {
-      us_10 = LATENCY_WINDOWS - 1;
-    }
-    latency[thread_id][coro_id][us_10]++;
-    // if(need_stop) break;
+      if (us_10 >= LATENCY_WINDOWS) {
+        us_10 = LATENCY_WINDOWS - 1;
+      }
+      latency[thread_id][coro_id][us_10]++;
+      // if(need_stop) break;
+    // }
   }
 }
 

@@ -265,7 +265,7 @@ void thread_run(int id) {
 
 
 #ifdef USE_CORO
-  tree->run_coroutine(gen_func, work_func, kCoroCnt);
+  tree->run_coroutine(gen_func, work_func, kCoroCnt, kThreadCount);
 #else
   /// without coro
   Timer timer;
@@ -274,18 +274,21 @@ void thread_run(int id) {
 
   while (!need_stop) {
   // uint64_t end_warm_key = kWarmRatio * kKeySpace;
-  // for (uint64_t i = 1; i < end_warm_key; ++i) {  //线程多起来之后会更加分散
+  // uint64_t all_loader_thread = kThreadCount * dsm->getClusterSize();
+  // uint64_t shard = end_warm_key / all_loader_thread;
+  // for (uint64_t i = 1; i < shard; ++i) {  //线程多起来之后会更加分散
+    // if(i % all_loader_thread == thread_id){
+      // auto r = gen->next(i + shard * thread_id);
+      auto r = gen->next();
+      timer.begin();
+      work_func(tree, r, nullptr, 0);
+      auto us_10 = timer.end() / 100;
 
-    // auto r = gen->next(i);
-    auto r = gen->next();
-    timer.begin();
-    work_func(tree, r, nullptr, 0);
-    auto us_10 = timer.end() / 100;
-
-    if (us_10 >= LATENCY_WINDOWS) {
-      us_10 = LATENCY_WINDOWS - 1;
-    }
-    latency[thread_id][0][us_10]++;
+      if (us_10 >= LATENCY_WINDOWS) {
+        us_10 = LATENCY_WINDOWS - 1;
+      }
+      latency[thread_id][0][us_10]++;
+    // }
   }
 
 #endif
@@ -375,7 +378,7 @@ printf("Cache \n");
 #else 
 printf("No cache\n");
 #endif
-    sleep(0.8);
+    sleep(1);
     clock_gettime(CLOCK_REALTIME, &e);
     int microseconds = (e.tv_sec - s.tv_sec) * 1000000 +
                        (double)(e.tv_nsec - s.tv_nsec) / 1000;

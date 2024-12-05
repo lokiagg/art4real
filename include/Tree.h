@@ -66,7 +66,7 @@ public:
   Tree(DSM *dsm, uint16_t tree_id = 0);
 
   using WorkFunc = std::function<void (Tree *, const Request&, CoroContext *, int)>;
-  void run_coroutine(GenFunc gen_func, WorkFunc work_func, int coro_cnt, Request* req = nullptr, int req_num = 0);
+  void run_coroutine(GenFunc gen_func, WorkFunc work_func, int coro_cnt, int thread_count, Request* req = nullptr, int req_num = 0);
 
   void insert(const Key &k, Value v, CoroContext *cxt = nullptr, int coro_id = 0, bool is_update = false, bool is_load = false);
   bool search(const Key &k, Value &v, CoroContext *cxt = nullptr, int coro_id = 0);
@@ -80,7 +80,7 @@ public:
 
 private:
   int find_next_diff(Leaf_kv* leaves, int leaf_cnt, int depth);
-  void coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int coro_id);
+  void coro_worker(CoroYield &yield, RequstGen *gen, WorkFunc work_func, int coro_id, int thread_count);
   void coro_master(CoroYield &yield, int coro_cnt);
 
   bool read_leaf(GlobalAddress &leaf_addr, char *leaf_buffer, int leaf_size, const GlobalAddress &p_ptr, bool from_cache, CoroContext *cxt, int coro_id);
