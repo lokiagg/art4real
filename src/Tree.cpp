@@ -605,19 +605,19 @@ faa_counter:
         }
         // if(buffer_from_cache_flag) bp_node->records = cache_entry_buffer->records;
         bool res = false;
-        if(start_idx == 256)
+        if(start_idx == 256){
           res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,buffer_slot,from_cache,buffer_from_cache_flag,p, p_ptr,buffer_type_change,cxt,coro_id);
-        // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
-        // {
-          // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
-          // index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
-        // }
+          // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
+          // {
+            // bool cache_res = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
+            // index_cache->invalidate(cache_entry_parent_ptr, cache_entry_parent);
+          // }
 #ifdef USE_CN_CACHE
-        // 有个很大的问题，，如果用引用的话，那 invalidate 之后怎么办  这？？？  这里应该没有失效对 靠了
-        if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
+          // 有个很大的问题，，如果用引用的话，那 invalidate 之后怎么办  这？？？  这里应该没有失效对 靠了
+          if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
 #endif        
+        }
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
-
         auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
         dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);  //在这里直接重新读父节点会怎样  感觉可以直接重新读父节点 反正都要读 
         p = *(InternalEntry *)entry_buffer;
@@ -761,6 +761,8 @@ internal_node:
 
   node_ptr = GADD(p.addr(), sizeof(GlobalAddress));
 
+  // auto page_buffer1 = (dsm->get_rbuf(coro_id)).get_page_buffer();
+  // dsm->read_sync(page_buffer1, p.addr(), sizeof(GlobalAddress) + sizeof(Header) + 256 * sizeof(InternalEntry) + 1, cxt);
 
   // 3.3 try get the next internalEntry
   // max_num = node_type_to_num(p.type());
@@ -774,6 +776,7 @@ internal_node:
   for (int i = 0; i < max_num; ++ i) {   //可能是节点的类型没有cas成功？
     auto old_e = p_node->records[i];
     if (old_e != InternalEntry::Null() && old_e.partial == get_partial(k, depth)) {
+      assert(old_e.child_type ==1 || old_e.child_type ==2);
       p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + i * sizeof(InternalEntry));
       p = old_e;
       from_cache = false;
@@ -853,294 +856,6 @@ auto internal_slot_loop_duration = std::chrono::duration_cast<std::chrono::nanos
         buffer_node_cnt[dsm->getMyThreadID()] ++;
 
     // printf("internal type %d  to %d \n", (int)p.node_type,node_type_to_num(next_type) );
-    goto insert_finish;
-  }
-  else {  // same partial keys insert to the same empty slot
-    p_ptr = GADD(node_ptr, slot_id * sizeof(InternalEntry));
-    p = *(InternalEntry*) cas_buffer;
-    from_cache = false;
-    depth ++;
-    retry_flag = INSERT_BEHIND_EMPTY;
-    goto next;
-  }
-}
-else{  //一个缓冲节点 1.找到一样的叶节点了 2.插空槽 3.缓冲节点头部分裂 4.缓冲节点满了 结构化修改 
-
-  if (bp == BufferEntry::Null()) {      //直接写 写了cas  
-
-      auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-
-      //新建一个缓冲节点 和叶节点 一起写过去 最后cas
-
-      auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
-      new (leaf_buffer) Leaf_kv(p_ptr,leaf_type,klen,vlen,k, v);
-      leaf_addr = dsm->alloc(sizeof(Leaf_kv));
-
-      auto new_be = BufferEntry(0,get_partial(k,depth-1), 1,leaf_type,leaf_addr);
-
-      dsm->write_sync(leaf_buffer, leaf_addr, sizeof(Leaf_kv), cxt);
-      bool res = dsm->cas_sync(p_ptr, (uint64_t)bp, (uint64_t)new_be, cas_buffer, cxt);
-
-      // cas fail, retry
-      if (!res) {
-        update_retry_flag[dsm->getMyThreadID()]=1;
-        bp = *(BufferEntry*) cas_buffer;
-        retry_flag = CAS_Buffer_EMPTY;
-        from_cache = false;
-        goto next;
-      }
-      buffer_empty_entry[dsm->getMyThreadID()] ++;
-      insert_type[dsm->getMyThreadID()]=4;
-      goto insert_finish;
-    }
-
-
-  if(bp.node_type == 1)   //找buffer node 看有没有空的
-  {
-
-    bool is_match;
-    auto buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
-    GlobalAddress addr = bp.addr();
-  //  if(buffer_from_cache_flag)
-    {
-    }
-   // else
-   {  retry_read_buffer ++;
-      is_valid = read_buffer_node(addr, buffer_buffer, p_ptr, depth, from_cache,cxt, coro_id);   
-      bp_node = (InternalBuffer *)buffer_buffer;
- //     parent_buffer =*bp_node;
-          //3.1 check partial key
-      if (!is_valid) {  // node deleted || outdated cache entry in cached node
-        if (from_cache) {
-          index_cache->invalidate(entry_ptr_ptr, entry_ptr);
-        }
-        // re-read node entry
-        auto entry_buffer = (dsm->get_rbuf(coro_id)).get_buffer_entry_buffer();
-        dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
-        bp = *(BufferEntry *)entry_buffer;
-        from_cache = false;
-        retry_flag = INVALID_Buffer_NODE;
-        goto next;
-      }
-    } 
-
-    bhdr=bp_node->hdr;
-#ifdef USE_CN_CACHE
-    if (depth == bhdr.depth) {
-    //      printf("thread  %d 5 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)bp_node->hdr);
-    // index_cache->add_to_cache(k, 1,(InternalPage *)bp_node, GADD(bp.a0ddr(), sizeof(GlobalAddress) + sizeof(BufferHeader)));
-    }
-#endif
-
-    for (int i = 0; i < bhdr.partial_len; ++ i) {    //缓冲节点分裂   新建一个共同前缀的内部节点
-    if (get_partial(k, bhdr.depth + i) != bhdr.partial[i]) {
-      //3.2 partial key not match, need split
-      auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-      int partial_len = bhdr.depth + i - depth;  // hdr.depth may be outdated, so use partial_len wrt. depth
-      bool res = out_of_place_write_node_from_buffer(k, v, depth, leaf_addr, leaf_type,  klen,vlen,partial_len,bhdr.partial[i], p_ptr, bp, node_ptr, cas_buffer, cxt, coro_id);   //缓冲节点下面的缓冲节点进行分裂
-      if (!res) {
-        bp = *(BufferEntry*) cas_buffer;
-        retry_flag = SPLIT_Buffer_HEADER;
-        from_cache = false;
-        goto next;
-      }
-      if (from_cache) {
-        index_cache->invalidate(entry_ptr_ptr, entry_ptr);
-      }
-      // udpate cas header. Optimization: no need to snyc; mask node_type
-      auto header_buffer = (dsm->get_rbuf(coro_id)).get_header_buffer();
-      auto new_hdr = BufferHeader::split_header(bhdr, i);
-
-      bool res_d=dsm->cas_sync(GADD(bp.addr(), sizeof(GlobalAddress)), (uint64_t)bhdr, (uint64_t)new_hdr, header_buffer,cxt);
-      buffer_header_split[dsm->getMyThreadID()] ++;
-      insert_type[dsm->getMyThreadID()] =5;
-      goto insert_finish;
-    }
-    }
-    depth = bhdr.depth + bhdr.partial_len;
-    auto partial = get_partial(k, depth);
-    //3.4 still have empty slot  不存在部分键相同的情况  有的话 则往下找 否则放空位 
-  //  if(bhdr.count_1+bhdr.count_2 < 256)
-    //{
-      auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-
-      GlobalAddress be_ptr;
-      BufferEntry old_be;
-    //  uint8_t partial;
-        for(int i=0;i < 256;i++)
-        {
-          if(bp_node->records[i] == BufferEntry::Null()||bp_node->records[i].val ==0) //If we are at a  buffer  empty and partial key match
-          {
-           depth ++;
-           old_be = bp_node->records[i];
-           be_ptr=GADD(bp.addr(), sizeof(GlobalAddress) + i * sizeof(BufferEntry));
-           auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-           bool res = out_of_place_write_leaf(k,v,depth,leaf_addr,leaf_type ,klen,vlen,be_ptr,old_be,cas_buffer,cxt,coro_id);
-           if(res)
-           {
-            buffer_empty_entry[dsm->getMyThreadID()]++;
-                  insert_type[dsm->getMyThreadID()]=4;
-            goto insert_finish;
-           } 
-           else {
-            auto e = *(BufferEntry*) cas_buffer;
-            if (e.partial == get_partial(k, depth)) {  // same partial keys insert to the same empty slot  再次查找本层 
-              bp = e;
-              from_cache = false;
-              retry_flag = CAS_Buffer_EMPTY;
-              goto next;  // search next level
-              }
-          }
-        }
-      }
-  //有重复的 需要将重复的拿下来到下一级缓冲节点
-          bool res=out_of_place_write_buffer_node_from_buffer(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,entry_ptr_ptr, entry_ptr,from_cache,bp, p_ptr,cxt,coro_id);
-
-          if (!res) {
-        auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
-        dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(BufferEntry), cxt);
-        bp = *(BufferEntry *)entry_buffer;
-          //  bp = *(BufferEntry*) cas_buffer;
-            retry_flag = Buffer_Switch_type;
-            from_cache = false;
-            goto next;
-          }
-          buffer_reconstruct[dsm->getMyThreadID()] ++;
-                  insert_type[dsm->getMyThreadID()] =6;
-          goto insert_finish;
-
-     //     }
-   // }
-  }
-
-  //内部节点
-  // 3. Find out a node
-  // 3.1 read the node
-  page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
-  is_valid = read_node_from_buffer(bp, type_correct,page_buffer,p_ptr,depth, from_cache,cxt,coro_id);
-  p_node = (InternalPage *)page_buffer;
-//  parent_buffer =*bp_node;
-  if (!is_valid) {  // node deleted || outdated cache entry in cached node
-
-    // invalidate the old node cache
-    if (from_cache) {
-        index_cache->invalidate(entry_ptr_ptr, entry_ptr);
-    }
-    // re-read node entry
-    auto entry_buffer = (dsm->get_rbuf(coro_id)).get_buffer_entry_buffer();
-    dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(BufferEntry), cxt);
-    bp = *(BufferEntry *)entry_buffer;
-    from_cache = false;
-    retry_flag = INVALID_Internal_NODE;
-    goto next;
-  }
-  // 3.2 Check header
-  hdr = p_node->hdr;
-
-  if (from_cache && !type_correct) {  // invalidate the out dated node type
-    index_cache->invalidate(entry_ptr_ptr, entry_ptr);
-  }
-#ifdef USE_CN_CACHE  
-  if (depth == hdr.depth) {
-      //    printf("thread  %d 6 node value is %" PRIu64" \n",(int)dsm->getMyThreadID( ),(uint64_t)p_node->hdr);
-    index_cache->add_to_cache(k, 0,p_node, GADD(p.addr(), sizeof(GlobalAddress)));
-  }
-#endif  
-
-
-  for (int i = 0; i < hdr.partial_len; ++ i) {
-    if (get_partial(k, hdr.depth + i) != hdr.partial[i]) {
-      // need split
-      auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-      int partial_len = hdr.depth + i - depth;  // hdr.depth may be outdated, so use partial_len wrt. depth
-      bool res = out_of_place_write_node_from_buffer(k, v, depth, leaf_addr,leaf_type,klen,vlen, partial_len,hdr.partial[i], p_ptr, bp, node_ptr, cas_buffer, cxt, coro_id);   //内部节点分裂  分裂后往新的内部节点下申请一个新的缓冲节点和叶节点
-      // cas fail, retry
-      if (!res) {
-        update_retry_flag[dsm->getMyThreadID()]=1;
-        bp = *(BufferEntry*) cas_buffer;
-        retry_flag = SPLIT_Internal_HEADER;
-        from_cache = false;
-        goto next;
-      }
-      // invalidate cache node due to outdated cache entry in cache node
-      if (from_cache) {
-        index_cache->invalidate(entry_ptr_ptr, entry_ptr);
-      }
-
-      // udpate cas header. Optimization: no need to snyc; mask node_type
-      auto header_buffer = (dsm->get_rbuf(coro_id)).get_header_buffer();
-      auto new_hdr = Header::split_header(hdr, i);
-      dsm->cas(GADD(bp.addr(), sizeof(GlobalAddress)), (uint64_t)hdr, (uint64_t)new_hdr, header_buffer, false, cxt);
-      internal_header_split[dsm->getMyThreadID()] ++;
-      insert_type[dsm->getMyThreadID()] = 3;
-      goto insert_finish;
-    }
-  }
-      assert(hdr.depth !=0);
-  depth = hdr.depth + hdr.partial_len;
-#ifdef TREE_TEST_ROWEX_ART
-  if (!is_update) unlock_node(node_ptr, cxt, coro_id);
-  node_ptr = GADD(p.addr(), sizeof(GlobalAddress) );
-  if (!is_update) lock_node(node_ptr, cxt, coro_id);
-#else
-  node_ptr = GADD(bp.addr(), sizeof(GlobalAddress) );
-#endif
-
-  // 3.3 try get the next internalEntry
-  max_num = node_type_to_num(bp.type());
-  // search a exists slot first
-  for (int i = 0; i < max_num; ++ i) {
-    auto old_e = p_node->records[i];
-    if (old_e != InternalEntry::Null() && old_e.partial == get_partial(k, depth)) {
-      p_ptr = GADD(bp.addr(), sizeof(GlobalAddress)+ i * sizeof(InternalEntry));
-      p = old_e;
-      from_cache = false;
-      depth ++;
-      retry_flag = FIND_NEXT;
-      parent_type = 0;
-      goto next;  // search next level
-    }
-  }
-  // if no match slot, then find an empty slot to insert leaf directly
-  for (int i = 0; i < max_num; ++ i) {
-    auto old_e = p_node->records[i];
-    if (old_e == InternalEntry::Null()) {
-      auto e_ptr = GADD(bp.addr(), sizeof(GlobalAddress) + i * sizeof(InternalEntry));
-      auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-      bool res = out_of_place_write_buffer_n_leaf(k,v,depth +1,leaf_addr,leaf_type,klen,vlen,e_ptr,old_e,node_ptr,cas_buffer,cxt,coro_id);
-      // cas success, return
-      if (res) {
-        internal_empty_entry[dsm->getMyThreadID()] ++;
-            insert_type[dsm->getMyThreadID()] = 1;
-        goto insert_finish;
-      }
-      else{
-      auto e = *(InternalEntry*) cas_buffer;
-      if (e.partial == get_partial(k, depth))
-      {
-      p = old_e;
-      p_ptr = e_ptr;
-      parent_type = 0;
-      from_cache = false;
-      retry_flag = CAS_Internal_EMPTY;
-      depth++;  
-      goto next;
-      }
-      }
-    }
-  }
-    // 3.4 node is full, switch node type
-
-  int slot_id;
-  cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
-  if (insert_behind(k, v, bp.addr(), depth,leaf_addr,get_partial(k,depth), bp.type(),leaf_type,klen, vlen,node_ptr,cas_buffer,slot_id,cxt,coro_id)){  // insert success
-    auto next_type = num_to_node_type(slot_id);
-    cas_node_type_from_buffer(next_type, p_ptr, bp, hdr, cxt, coro_id);
-    if (from_cache) {  // cache is outdated since node type is changed
-      index_cache->invalidate(entry_ptr_ptr, entry_ptr);
-    }
-    internal_extend_empty_entry[dsm->getMyThreadID()] ++;
-    insert_type[dsm->getMyThreadID()] = 2;
     goto insert_finish;
   }
   else {  // same partial keys insert to the same empty slot
@@ -2266,6 +1981,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     // Header new_hdr(bnode->hdr);
     // old_page->hdr.val = new_hdr.val;
     old_page->l_padding = 99;
+    old_page->hdr.count = 257;
     old_page->rev_ptr = rev_ptr;
     // old_page->lock_byte = 0;
     assert(old_page->hdr.val !=0);
@@ -2287,7 +2003,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       old_page->records[new_bnode_num].packed_addr ={bnode_addrs[new_bnode_num].nodeID,bnode_addrs[new_bnode_num].offset >> ALLOC_ALLIGN_BIT} ;
       old_page->records[new_bnode_num].partial = it.first;
       old_page->records[new_bnode_num].child_type = 1;
-      assert(old_page->hdr.count == 256);
+      // assert(old_page->hdr.count == 256);
 
 
       int j = 0;
@@ -2596,7 +2312,8 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
   if (from_cache) { // cache hit
 
     p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
-    p = entry_ptr->records[entry_idx];
+    if(entry_idx < entry_ptr->records.size())
+      p = entry_ptr->records[entry_idx];
     depth = entry_ptr->depth;
    // cache_depth = depth;
     parent_type  = entry_ptr->node_type;

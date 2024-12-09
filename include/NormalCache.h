@@ -37,9 +37,11 @@ struct CacheEntry {
     }
     }
     else{
+      int num = ((InternalBuffer*)p_node)->hdr.count_1;
+      // for (int i = 0; i < num; ++ i) {
       for (int i = 0; i < 256; ++ i) {
         const auto& e = ((InternalBuffer*)p_node)->records[i];
-        // if(e == BufferEntry::Null()) break;
+        if(e == BufferEntry::Null()) break;
         // assert(e.packed_addr.mn_id == 0);
         records.push_back(*((InternalEntry*)&e));
     }

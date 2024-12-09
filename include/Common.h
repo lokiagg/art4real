@@ -94,7 +94,7 @@ constexpr uint64_t GB = 1024ull * MB;
 constexpr uint16_t kCacheLineSize = 64;
 
 // Remote Allocation
-constexpr uint64_t dsmSize           =100;        // GB  [CONFIG]
+constexpr uint64_t dsmSize           =120;        // GB  [CONFIG]
 constexpr uint64_t kChunkSize        = 16 * MB;   // B
 
 // Rdma Buffer
@@ -137,7 +137,7 @@ constexpr uint32_t leaf_type  = 5;
 //constexpr uint32_t fp  = 2;
 constexpr uint32_t allocationBufferSize = 8 + 8 +  256* 8 + 1;
 constexpr uint32_t allocAlignBufferSize = ROUND_UP(allocationBufferSize, ALLOC_ALLIGN_BIT);
-constexpr uint8_t  threshold = 200;
+constexpr uint8_t  threshold = 100;
 
 
 
