@@ -2310,10 +2310,6 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
   s_search_cache_time[dsm->getMyThreadID()] += search_from_cache_duration.count();
 #endif
   if (from_cache) { // cache hit
-
-    p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
-    if(entry_idx < entry_ptr->records.size())
-      p = entry_ptr->records[entry_idx];
     depth = entry_ptr->depth;
    // cache_depth = depth;
     parent_type  = entry_ptr->node_type;
@@ -2345,6 +2341,8 @@ bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///
     }
     else
     {
+      p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
+      p = entry_ptr->records[entry_idx];
       assert(entry_idx >= 0);
       cache_entry_parent = entry_ptr;
       cache_entry_parent_ptr = entry_ptr_ptr;
