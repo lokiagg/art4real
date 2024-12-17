@@ -84,6 +84,8 @@ uint64_t bufffer_from_cache_cnt[MAX_APP_THREAD];
 uint64_t buffer_node_all[MAX_APP_THREAD];
 double   buffer_slot[MAX_APP_THREAD];
 
+double buffer_dedup[MAX_APP_THREAD];
+
 // tbb::concurrent_unordered_map<uint64_t,int> map_buffer_cnt;
 /*
 uint64_t internal_empty_entry_time[MAX_APP_THREAD]; //找到内部节点空槽插入的时间

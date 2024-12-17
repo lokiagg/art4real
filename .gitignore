@@ -14,3 +14,4 @@ exp/results
 *.log
 *.lat
 latencies/
+ycsb/workloads_small
