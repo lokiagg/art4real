@@ -86,6 +86,10 @@ extern uint64_t buffer_loop[MAX_APP_THREAD];
 extern double buffer_empty_slot[MAX_APP_THREAD];
 extern uint64_t buffer_cnt_all[MAX_APP_THREAD];
 
+extern const int smo_bd_cnt = 7;
+extern uint64_t smo_bd[smo_bd_cnt][MAX_APP_THREAD];
+extern std::string smo_bd_str[smo_bd_cnt];
+
 
 int kReadRatio;
 int kThreadCount;
@@ -670,19 +674,31 @@ printf("No cache\n");
       printf("read buffer time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_buffer_total_time[0],read_buffer_total_time[1],read_buffer_total_time[2],read_buffer_total_time[3],read_buffer_total_time[4],read_buffer_total_time[5],read_buffer_total_time[6],read_buffer_total_time[7]);
       printf("read internal time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_internal_total_time[0],read_internal_total_time[1],read_internal_total_time[2],read_internal_total_time[3],read_internal_total_time[4],read_internal_total_time[5],read_internal_total_time[6],read_internal_total_time[7]);
       printf("read leaves time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_leaves_total_time[0],read_leaves_total_time[1],read_leaves_total_time[2],read_leaves_total_time[3],read_leaves_total_time[4],read_leaves_total_time[5],read_leaves_total_time[6],read_leaves_total_time[7]);               
-      printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
-      printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
-      printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
+      // printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
+      // printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
+      // printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
       // printf("insert avg: %f buffer loop cnt is %" PRIu64" ,buffer loop time is  %" PRIu64"  avg : %f \n",insert_total_time[0]*1.0/insert[0],buffer_loop_cnt,buffer_loop_time,buffer_loop_time*1.0/buffer_loop_cnt);
       printf("insert avg: %f ,var time:%f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy time avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],var_time_c*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_time1*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
-      printf("search cnt: %" PRIu64",search time :%" PRIu64" ,search avg: %f ,search cache avg: %f,read internal avg: %f ,read buffer :%f ,cache op time :%f ,buffer loop time :%f ,read leaf:%f \n",search_c,search_t,search_t*1.0/search_c,s_search_cache*1.0/search_c,s_read_internal*1.0/search_c,s_read_buffer*1.0/search_c,s_cache_op*1.0/search_c,s_buffer_loop*1.0/search_c,s_read_leaf*1.0/search_c);
-      printf("buffer empty rate :%f \n",1-(buffer_s*1.0/buffer_n_t));
-      printf("buffer cnt  %" PRIu64"\n",buffer_node);
-          for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
-        printf("node_type%d %lu   ", i, read_node_type_cnt1[i]);
+      // printf("search cnt: %" PRIu64",search time :%" PRIu64" ,search avg: %f ,search cache avg: %f,read internal avg: %f ,read buffer :%f ,cache op time :%f ,buffer loop time :%f ,read leaf:%f \n",search_c,search_t,search_t*1.0/search_c,s_search_cache*1.0/search_c,s_read_internal*1.0/search_c,s_read_buffer*1.0/search_c,s_cache_op*1.0/search_c,s_buffer_loop*1.0/search_c,s_read_leaf*1.0/search_c);
+      // printf("buffer empty rate :%f \n",1-(buffer_s*1.0/buffer_n_t));
+      // printf("buffer cnt  %" PRIu64"\n",buffer_node);
+          // for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
+        // printf("node_type%d %lu   ", i, read_node_type_cnt1[i]);
+    // }
+      uint64_t smo_total = 0;
+      uint64_t smo_bd_total[smo_bd_cnt];
+      memset(smo_bd_total,0,sizeof(smo_bd_total));
+      for(int j = 0; j < MAX_APP_THREAD; j++)
+        for(int i = 0; i < smo_bd_cnt; i++){
+          smo_total += smo_bd[i][j];
+          smo_bd_total[i] += smo_bd[i][j];
+      }
+      for(int i = 0; i < smo_bd_cnt; i++){
+        double r = (double)smo_bd_total[i] / smo_total;
+        std::cout << smo_bd_str[i] << "\ttime: " << smo_bd_total[i] << "\tratio: " << r * 100 << "%" << std::endl;
       }
       printf("\n buffer cnt  %" PRIu64"\n",read_buffer_node);
-          for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
+      for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
         printf("node_type%d %lu   ", i, read_internal_node[i]);
       }
     } 

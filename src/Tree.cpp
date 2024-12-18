@@ -15,6 +15,9 @@
 #include <chrono>
 #include <immintrin.h>
 
+#define likely(x)   __builtin_expect((x),1)
+#define unlikely(x) __builtin_expect((x),0)
+
 // #define USE_CN_CACHE
 
 // extern double kWarmRatio;
@@ -85,6 +88,18 @@ uint64_t buffer_node_all[MAX_APP_THREAD];
 double   buffer_slot[MAX_APP_THREAD];
 
 double buffer_dedup[MAX_APP_THREAD];
+
+const int smo_bd_cnt = 7;
+uint64_t smo_bd[smo_bd_cnt][MAX_APP_THREAD];
+std::string smo_bd_str[smo_bd_cnt] = {
+  "before reading buffer",  // 0
+  "reading buffer",         // 1
+  "reading leaves",
+  "copying leaves",
+  "common prefix",
+  "deduplication",
+  "split"
+};
 
 // tbb::concurrent_unordered_map<uint64_t,int> map_buffer_cnt;
 /*
@@ -1746,6 +1761,9 @@ int Tree::find_next_diff(Leaf_kv* leaves, int leaf_cnt, int depth){
 
 bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,InternalBuffer* bnode,int leaf_type,int klen,int vlen,GlobalAddress leaf_addr,CacheEntry**&entry_ptr_ptr,CacheEntry*& entry_ptr,std::vector<InternalEntry> buffer_slot,bool from_cache,bool buffer_from_cache_flag,InternalEntry& old_e, GlobalAddress p_ptr,bool &buffer_type_change ,CoroContext *cxt, int coro_id) {
   //先获取锁 再修改 否则不修改  搞异地更新吧 ！！！！！
+#ifdef TEST_TIME
+  auto s1 = std::chrono::high_resolution_clock::now();
+#endif
   static const uint64_t lock_cas_offset = ROUND_DOWN(STRUCT_OFFSET(InternalBuffer, lock_byte), 3);  //8B对齐
   static const uint64_t lock_mask       = 1UL << ((STRUCT_OFFSET(InternalBuffer, lock_byte) - lock_cas_offset) * 8);
   auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
@@ -1766,6 +1784,15 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   // leaf_flag?  dsm->alloc_bnodes(new_bnode_num +1, bnode_addrs) :dsm->alloc_bnodes(new_bnode_num+1+1, bnode_addrs);  //最后一个是异地的内部节点的新地址
   auto leaves_buffer =(dsm->get_rbuf(coro_id)).get_range_buffer();
   auto buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer(); 
+
+#ifdef TEST_TIME
+  auto e1 = std::chrono::high_resolution_clock::now();
+  auto d1 = std::chrono::duration_cast<std::chrono::nanoseconds>(e1-s1);
+  smo_bd[0][dsm->getMyThreadID()] += d1.count();
+#endif
+#ifdef TEST_TIME
+  auto s2 = std::chrono::high_resolution_clock::now();
+#endif
   for(int i =0;i<256;i++)  //把所有叶子读过来
   {
   if(buffer_from_cache_flag && bnode->records[i].val == 0)   bnode->records[i].val = buffer_slot[i].val;
@@ -1774,7 +1801,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 #ifdef TEST_TIME
       auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
 #endif
-      
+
       bool is_valid = read_buffer_node(old_e.addr(), buffer_buffer, p_ptr, depth -1, from_cache,cxt, coro_id);
 
 #ifdef TEST_TIME
@@ -1782,6 +1809,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
       auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
       read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count();  
+      smo_bd[1][dsm->getMyThreadID()] += read_buffer_node_duration.count();
       // read_buffer_node_time_this += read_buffer_node_duration.count();  
 #endif
       bnode = (InternalBuffer *)buffer_buffer;
@@ -1791,6 +1819,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
           return false;
       }
   }
+
      RdmaOpRegion r;
         r.dest       = bnode->records[i].addr();
         r.source = (uint64_t)leaves_buffer + i * define::allocAlignPageSize;
@@ -1802,12 +1831,19 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   InternalBuffer old_b = *bnode;
   //读需要放在下一层的叶节点 read_batch
   dsm->read_batches_new_sync(rs,cxt,coro_id);   //没读过来？？？搞成单次读呢？
+#ifdef TEST_TIME
+  auto e2 = std::chrono::high_resolution_clock::now();
+  auto d2 = std::chrono::duration_cast<std::chrono::nanoseconds>(e2-s2);
+  smo_bd[2][dsm->getMyThreadID()] += d2.count();
+#endif
   //写叶节点
   auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
   
   if(leaf_addr == GlobalAddress::Null()) leaf_addr = dsm->alloc(sizeof(Leaf_kv));
 
-
+#ifdef TEST_TIME
+  auto s3 = std::chrono::high_resolution_clock::now();
+#endif
   Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
   int leaf_no_repeat_cnt = 0;
   //读到了leaves_buffer
@@ -1815,7 +1851,14 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   {
     leaves[i] = *(Leaf_kv *)(leaves_buffer + i * define::allocAlignPageSize);
   }
-
+#ifdef TEST_TIME
+  auto e3 = std::chrono::high_resolution_clock::now();
+  auto d3 = std::chrono::duration_cast<std::chrono::nanoseconds>(e3-s3);
+  smo_bd[3][dsm->getMyThreadID()] += d3.count();
+#endif
+#ifdef TEST_TIME
+  auto s4 = std::chrono::high_resolution_clock::now();
+#endif
   uint8_t new_leaf_partial = get_partial(k,depth-1);
   std::set<Key> s;
   std::map<char,std::vector<int>> mp;
@@ -1825,7 +1868,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     Key& tmp_k = leaves[i].key;
     char c = bnode->records[i].partial; // 不太确定这里拿到的是不是下一个字节
     if(s.find(tmp_k) == s.end()){  // s里面找不到
-      if(tmp_k == k)  //有的话更新
+      if(unlikely(tmp_k == k))  //有的话更新
       {
         auto update_leaf =(Leaf_kv*) (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
         memcpy(update_leaf,&leaves[i],sizeof(Leaf_kv));
@@ -1838,6 +1881,14 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     else
     reapeat_time ++;
   }
+#ifdef TEST_TIME
+  auto e4 = std::chrono::high_resolution_clock::now();
+  auto d4 = std::chrono::duration_cast<std::chrono::nanoseconds>(e4-s4);
+  smo_bd[4][dsm->getMyThreadID()] += d4.count();
+#endif
+#ifdef TEST_TIME
+  auto s5 = std::chrono::high_resolution_clock::now();
+#endif
   int empty_slot = 256 - s.size() - (update_flag == false);
   if(empty_slot > define::threshold )
   { // 去重
@@ -1897,6 +1948,11 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     new_entry.empty = 1;
     // assert(new_entry.packed_addr.mn_id == 0);
     bool res =dsm->cas_sync(p_ptr, (uint64_t)old_e, (uint64_t)new_entry, cas_buffer, cxt);
+#ifdef TEST_TIME
+  auto e5 = std::chrono::high_resolution_clock::now();
+  auto d5 = std::chrono::duration_cast<std::chrono::nanoseconds>(e5-s5);
+  smo_bd[5][dsm->getMyThreadID()] += d5.count();
+#endif
     if(res) 
      {   //先失效父节点
         //  if(from_cache)
@@ -1922,6 +1978,9 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   }
   else  // 空槽不足则分裂
   {
+#ifdef TEST_TIME
+  auto s6 = std::chrono::high_resolution_clock::now();
+#endif
     int partial_len = find_next_diff(leaves, leaf_cnt, depth - 1);
     for(int i = depth -1;i<depth-1 +partial_len;i++) 
     {
@@ -2109,6 +2168,11 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 #endif
 
   // old_e = *(InternalEntry*) cas_node_type_buffer;
+#ifdef TEST_TIME
+  auto e6 = std::chrono::high_resolution_clock::now();
+  auto d6 = std::chrono::duration_cast<std::chrono::nanoseconds>(e6-s6);
+  smo_bd[6][dsm->getMyThreadID()] += d6.count();
+#endif
   if(res)
   {
 #ifdef USE_CN_CACHE
@@ -3144,4 +3208,5 @@ void Tree::clear_debug_info() {
   memset(buffer_empty_slot,0,sizeof(double)*MAX_APP_THREAD);
   memset(buffer_cnt_all,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(bufffer_from_cache_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(smo_bd,0,sizeof(uint64_t)*smo_bd_cnt*MAX_APP_THREAD);
 }
