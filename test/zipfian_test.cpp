@@ -702,13 +702,13 @@ printf("No cache\n");
         printf("node_type%d %lu   ", i, read_internal_node[i]);
       }
     } 
+    printf("\nwrite combining rate: %lf\n", write_handover_cnt * 1.0 / try_write_op_cnt);
 /*
     if (dsm->getMyNodeID() == 0) {
       printf("epoch %d passed!\n", count);
       printf("cluster throughput %.3f\n", cluster_tp / 1000.0);
       printf("cache hit rate: %lf\n", hit * 1.0 / all);
       printf("avg. lock/cas fail cnt: %lf\n", lock_fail_cnt * 1.0 / try_write_op_cnt);
-      printf("write combining rate: %lf\n", write_handover_cnt * 1.0 / try_write_op_cnt);
       printf("read delegation rate: %lf\n", read_handover_cnt * 1.0 / try_read_op_cnt);
       printf("read leaf retry rate: %lf\n", read_leaf_retry_cnt * 1.0 / try_read_leaf_cnt);
       printf("read invalid leaf rate: %lf\n", leaf_cache_invalid_cnt * 1.0 / try_read_leaf_cnt);

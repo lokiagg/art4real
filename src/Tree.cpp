@@ -207,6 +207,10 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 #endif
 
   assert(dsm->is_register());
+  // handover
+  bool write_handover = false;
+  std::pair<bool, bool> lock_res = std::make_pair(false, false);
+
   int leaf_type=-1;
   int leaf_size =0;
   int klen=128,vlen=1024;   //应该从后往前找！
@@ -263,9 +267,19 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   int cnt_res=cnt.fetch_add(1);
   bool buffer_to_in = false;
 
+#ifdef TREE_ENABLE_WRITE_COMBINING
+  lock_res = local_lock_table->acquire_local_write_lock(k, v, &busy_waiting_queue, cxt, coro_id);
+  write_handover = (lock_res.first && !lock_res.second);
+#endif
+  try_write_op[dsm->getMyThreadID()]++;
+  if (write_handover) {
+    write_handover_num[dsm->getMyThreadID()]++;
+    goto insert_finish;
+  }
 
 
-  InternalBuffer parent_buffer;
+
+  // InternalBuffer parent_buffer;
   insert_cnt[0][dsm->getMyThreadID()] ++ ;
 //  loop_time[dsm->getMyThreadID()] = 0;
 
@@ -357,7 +371,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 //     assert(cache_entry_buffer->records[i] != InternalEntry::Null());
 //   }
 // }
-  int retry_read_buffer = 0;
+  // int retry_read_buffer = 0;
 next:
   retry_cnt[dsm->getMyThreadID()][retry_flag] ++;
 if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空槽 生成新的缓冲节点 3.内部节点分裂 分裂之后生成新的缓冲节点 4.内部节点满了扩展  并生成新的缓冲节点  
@@ -502,6 +516,9 @@ if(!buffer_from_cache_flag)  //buffer不是从cache来的
         // start_idx = map_buffer_cnt[p.addr().val];
         // TODO: CAS 的同时把 value 写进去，，写完之后 cas 槽
 faa_counter:
+#ifdef TREE_ENABLE_WRITE_COMBINING
+        local_lock_table->get_combining_value(k, v);
+#endif
         start_idx = faa_buffer_counter_n_write_leaf(k,v,depth,leaf_addr,leaf_type ,klen,vlen,be_ptr,p.addr(),cas_buffer,cxt,coro_id);
         //当start_idx为0的时候就代表已经是256了
         for(int i= start_idx;i < 256 && i !=0 ;i++)  //等于256的时候 已经加1了
@@ -622,7 +639,30 @@ faa_counter:
         }
         // if(buffer_from_cache_flag) bp_node->records = cache_entry_buffer->records;
         bool res = false;
-        if(start_idx == 256){
+        // if(start_idx == 256){
+
+
+
+        // 加一个就地更新
+        for(int i = 255; i >= 0; i --){
+          auto& e = bp_node->records[i];
+          if(e != BufferEntry::Null() && partial == e.partial){
+            auto l_bf = (dsm->get_rbuf(coro_id).get_kvleaf_buffer());
+            auto l_ptr = GADD(p.addr(), sizeof(GlobalAddress) + i*sizeof(BufferEntry));
+            auto l_addr = e.addr();
+            read_leaf(l_addr,l_bf,sizeof(Leaf_kv),l_ptr,from_cache,cxt,coro_id);
+            Leaf_kv leaf = *(Leaf_kv*) l_bf;
+            Key _k = leaf.key;
+            if(_k == k){
+              leaf.value = v;
+              auto update_leaf =(Leaf_kv*) (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
+              memcpy(update_leaf,&leaf,sizeof(Leaf_kv));
+              in_place_update_leaf(k,v,e.addr(),leaf_type,update_leaf,cxt,coro_id);
+              goto insert_finish;
+            }
+          }
+        }
+
           res=out_of_place_write_buffer_node_new(k, v,depth,bp_node,leaf_type,klen,vlen,leaf_addr,cache_entry_parent_ptr,cache_entry_parent,buffer_slot,from_cache,buffer_from_cache_flag,p, p_ptr,buffer_type_change,cxt,coro_id);
           // if(!from_cache && buffer_type_change)  //先失效父节点（内部节点） 在这里失效的时候可以直接修改父节点的槽 这里的父节点没有太大必要再去找了 直接从上一层拿了父节点在cache的槽了 不管是不是在cache 现在肯定都存在cache了 新增
           // {
@@ -633,7 +673,7 @@ faa_counter:
           // 有个很大的问题，，如果用引用的话，那 invalidate 之后怎么办  这？？？  这里应该没有失效对 靠了
           if(buffer_from_cache_flag)   index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
 #endif        
-        }
+        // }
         if (!res) {  //获取锁失败  获取锁失败可能是一个内部节点 所以p还是需要改  其实不管有没有获取到锁 父节点的槽都得修改 总之 获取到或者没获取到 父节点的槽指向的都应该是一个内部节点了
         auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
         dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);  //在这里直接重新读父节点会怎样  感觉可以直接重新读父节点 反正都要读 
@@ -904,6 +944,9 @@ insert_finish:
     auto hit = (cache_depth == 1 ? 0 : (double)cache_depth / depth);
     cache_hit[dsm->getMyThreadID()] += hit;
     cache_miss[dsm->getMyThreadID()] += (1 - hit);
+#ifdef TREE_ENABLE_WRITE_COMBINING
+  local_lock_table->release_local_write_lock(k, lock_res);
+#endif
   return;
 }
 
@@ -1768,7 +1811,6 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   static const uint64_t lock_mask       = 1UL << ((STRUCT_OFFSET(InternalBuffer, lock_byte) - lock_cas_offset) * 8);
   auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
   auto acquire_lock = dsm->cas_mask_sync(GADD(old_e.addr(), lock_cas_offset), 0UL, ~0UL, cas_buffer, lock_mask, cxt);
-
   if(!acquire_lock) return false;
 
   depth ++;
@@ -1874,6 +1916,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
         memcpy(update_leaf,&leaves[i],sizeof(Leaf_kv));
         in_place_update_leaf(k,v,bnode->records[i].addr(),leaf_type,update_leaf,cxt,coro_id); 
         update_flag = true;
+        insert_cnt[2][dsm->getMyThreadID()] ++;
       }
       mp[c].push_back(i);
       s.insert(tmp_k);
@@ -1881,6 +1924,13 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     else
     reapeat_time ++;
   }
+
+  if(update_flag){
+    auto release_lock = dsm->cas_mask_sync(GADD(old_e.addr(), lock_cas_offset), ~0UL, 0UL, cas_buffer, lock_mask, cxt);
+    return true;
+  }
+    
+
 #ifdef TEST_TIME
   auto e4 = std::chrono::high_resolution_clock::now();
   auto d4 = std::chrono::duration_cast<std::chrono::nanoseconds>(e4-s4);
