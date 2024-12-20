@@ -202,9 +202,9 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   auto start = std::chrono::high_resolution_clock::now();
 #endif
 
-#ifdef TEST_TIME
-  auto var_time_start = std::chrono::high_resolution_clock::now();
-#endif
+// #ifdef TEST_TIME
+//   auto var_time_start = std::chrono::high_resolution_clock::now();
+// #endif
 
   assert(dsm->is_register());
   // handover
@@ -285,12 +285,15 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 
   //search from cache
   search_cache_cnt[dsm->getMyThreadID()] ++;
-#ifdef TEST_TIME
-  auto var_time_stop = std::chrono::high_resolution_clock::now();
-  auto var_time_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(var_time_stop - var_time_start);
-  var_time[dsm->getMyThreadID()] += var_time_duration.count();
-#endif
-
+// #ifdef TEST_TIME
+//   auto var_time_stop = std::chrono::high_resolution_clock::now();
+//   auto var_time_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(var_time_stop - var_time_start);
+//   var_time[dsm->getMyThreadID()] += var_time_duration.count();
+// #endif
+{
+  
+}
+{
 
 #ifdef TEST_TIME
   auto search_from_cache_start = std::chrono::high_resolution_clock::now();
@@ -298,13 +301,16 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 
 #ifdef USE_CN_CACHE
   from_cache = index_cache->search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);   //check   直接从cache里面找到一个  在cache里面找到buffer直接去定位空槽的位置呗
+
+
+
 #ifdef TEST_TIME
   auto search_from_cache_stop = std::chrono::high_resolution_clock::now();
   auto search_from_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(search_from_cache_stop - search_from_cache_start);  
   search_from_cache_time[0][dsm->getMyThreadID()] += search_from_cache_duration.count();
     search_from_cache_time_this += search_from_cache_duration.count();
 #endif
-
+}
   if (from_cache) { // cache hit
 
     p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
@@ -1786,7 +1792,7 @@ bool Tree::out_of_place_write_buffer_node(const Key &k, Value &v, int depth,Inte
 return false;
 }
 
-int Tree::find_next_diff(Leaf_kv* leaves, int leaf_cnt, int depth){
+int Tree::find_next_diff(std::vector<Leaf_kv>& leaves, int leaf_cnt, int depth){
   // 找到公共前缀的长度
   int res = 0;
   assert(depth > 0);
@@ -1886,7 +1892,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 #ifdef TEST_TIME
   auto s3 = std::chrono::high_resolution_clock::now();
 #endif
-  Leaf_kv *leaves = new Leaf_kv [leaf_cnt];
+  std::vector<Leaf_kv> leaves(leaf_cnt);
   int leaf_no_repeat_cnt = 0;
   //读到了leaves_buffer
   for(int i = 0;i<leaf_cnt;i++)
@@ -2246,14 +2252,14 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 #endif
     old_e = new_entry;  //重新赋值 新增
     buffer_type_change = true;
-    delete[] leaves;
+    // delete[] leaves;
     delete[] new_bnodes;
     delete[] node_pages;
     return true;
 
   }
   //old_e = *(InternalEntry*) cas_node_type_buffer;
-      delete[] leaves;
+      // delete[] leaves;
     delete[] new_bnodes;
     delete[] node_pages;
   return false;

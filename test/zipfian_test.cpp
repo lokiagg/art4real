@@ -100,7 +100,7 @@ std::atomic<int> true_res(0);
 
 uint64_t kKeySpace = 60 * define::MB;
 //uint64_t kKeySpace = 2000;
-double kWarmRatio = 0.2;
+double kWarmRatio = 1;
 double zipfan = 0;
 int kCoroCnt = 2;
 #ifdef TEST_INSERT
