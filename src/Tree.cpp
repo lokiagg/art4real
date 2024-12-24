@@ -194,6 +194,40 @@ InternalEntry Tree::get_root_ptr(CoroContext *cxt, int coro_id) {
   return *(InternalEntry *)entry_buffer;
 }
 
+void avx_compare(void* p, char partial, std::vector<int>& v_k_i){
+  BufferEntry* bp_node = (BufferEntry*) p;
+  int k_i = 0;
+    
+  // 设置包含 'partial' 的 AVX-512 寄存器
+  __m512i partial_vec = _mm512_set1_epi8(partial);
+
+  for (; k_i <= 256 - 8; k_i += 8) {
+      // 加载 64 个 BufferEntry 的第一个字节
+      __m512i first_bytes = _mm512_maskz_loadu_epi8(0x101010101010101ULL, &bp_node[k_i].partial);
+
+      // 比较第一个字节
+      __mmask64 mask = _mm512_cmpeq_epi8_mask(partial_vec, first_bytes);
+
+      // 将掩码转换为整数，检查哪些 BufferEntry 的 partial 字段匹配
+      uint64_t mask64 = (uint64_t)mask;
+      for (int i = 0; i < 8; ++i) {
+        if ((mask64 & (1ULL << (i*8) )) && bp_node[k_i + i] != BufferEntry::Null()) {
+          v_k_i.push_back(k_i + i);
+        }
+    }
+  }
+
+  // 处理剩余的元素
+  for (; k_i < 256; ++k_i) {
+    if (bp_node[k_i] != BufferEntry::Null() && bp_node[k_i].partial == partial) {
+      v_k_i.push_back(k_i);
+    }
+    if (bp_node[k_i] == BufferEntry::Null()) {
+      break;
+    }
+  }
+}
+
 void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_update, bool is_load) {
 #ifdef TEST_TIME
   auto start1 = std::chrono::high_resolution_clock::now();
@@ -648,10 +682,17 @@ faa_counter:
         // if(start_idx == 256){
 
 
-
+#ifdef AVX_ACC
+      std::vector<int> i_update;
+      avx_compare(bp_node->records,partial,i_update);
+      for(int i = i_update.size() - 1; i >= 0; i --){
+        int idx = i_update[i];
+        auto& e = bp_node->records[idx];
+#else
         // 加一个就地更新
         for(int i = 255; i >= 0; i --){
           auto& e = bp_node->records[i];
+#endif
           if(e != BufferEntry::Null() && partial == e.partial){
             auto l_bf = (dsm->get_rbuf(coro_id).get_kvleaf_buffer());
             auto l_ptr = GADD(p.addr(), sizeof(GlobalAddress) + i*sizeof(BufferEntry));
@@ -664,6 +705,8 @@ faa_counter:
               auto update_leaf =(Leaf_kv*) (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
               memcpy(update_leaf,&leaf,sizeof(Leaf_kv));
               in_place_update_leaf(k,v,e.addr(),leaf_type,update_leaf,cxt,coro_id);
+              buffer_reconstruct[dsm->getMyThreadID()]++;
+              insert_type[dsm->getMyThreadID()] =6;
               goto insert_finish;
             }
           }
@@ -714,11 +757,11 @@ faa_counter:
         }
         else{
         // if(entry_idx != -1) cache_entry_parent->records[entry_idx] = p;  // __sync_bool_compare_and_swap(&(cache_entry_parent->records[entry_idx]), old_p.val,p.val);       //成功之后想直接改  父节点是从cache来的 
-        }  
+          
         buffer_reconstruct[dsm->getMyThreadID()]++;
         insert_type[dsm->getMyThreadID()] =6;
         goto insert_finish;
-
+        }
  //         }
   //  }
   }
@@ -2336,40 +2379,6 @@ bool Tree::insert_behind(const Key &k, Value &v, GlobalAddress p_ptr,int depth, 
     retry_cnt[dsm->getMyThreadID()][INSERT_BEHIND_TRY_NEXT] ++;
   }
   assert(false);
-}
-
-void avx_compare(void* p, char partial, std::vector<int>& v_k_i){
-  BufferEntry* bp_node = (BufferEntry*) p;
-  int k_i = 0;
-    
-  // 设置包含 'partial' 的 AVX-512 寄存器
-  __m512i partial_vec = _mm512_set1_epi8(partial);
-
-  for (; k_i <= 256 - 8; k_i += 8) {
-      // 加载 64 个 BufferEntry 的第一个字节
-      __m512i first_bytes = _mm512_maskz_loadu_epi8(0x101010101010101ULL, &bp_node[k_i].partial);
-
-      // 比较第一个字节
-      __mmask64 mask = _mm512_cmpeq_epi8_mask(partial_vec, first_bytes);
-
-      // 将掩码转换为整数，检查哪些 BufferEntry 的 partial 字段匹配
-      uint64_t mask64 = (uint64_t)mask;
-      for (int i = 0; i < 8; ++i) {
-        if ((mask64 & (1ULL << (i*8) )) && bp_node[k_i + i] != BufferEntry::Null()) {
-          v_k_i.push_back(k_i + i);
-        }
-    }
-  }
-
-  // 处理剩余的元素
-  for (; k_i < 256; ++k_i) {
-    if (bp_node[k_i] != BufferEntry::Null() && bp_node[k_i].partial == partial) {
-      v_k_i.push_back(k_i);
-    }
-    if (bp_node[k_i] == BufferEntry::Null()) {
-      break;
-    }
-  }
 }
 
 bool Tree::search(const Key &k, Value &v, CoroContext *cxt, int coro_id) {   ///设置上限
