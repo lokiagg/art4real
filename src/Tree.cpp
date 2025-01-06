@@ -777,6 +777,7 @@ faa_counter:
   
   parent_add_to_cache_flag = false;
   page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
+  assert(p.child_type != 0);
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth,from_cache,cxt, coro_id);
   buffer_to_in = false;
   
@@ -788,7 +789,7 @@ faa_counter:
 #endif
 }
   p_node = (InternalPage *)page_buffer;
-  assert(p_node->hdr.partial_len == 0);  //新增的
+  // assert(p_node->hdr.partial_len == 0);  //新增的
 
   parent_page = *p_node;
   parent_page_ptr = p.addr();  //先不着急加到cache里面去   有可能会变成进行节点类型转换
@@ -1839,11 +1840,11 @@ int Tree::find_next_diff(std::vector<Leaf_kv>& leaves, int leaf_cnt, int depth){
   // 找到公共前缀的长度
   int res = 0;
   assert(depth > 0);
-  for(int i = depth; ; i++){
+  for(int i = depth;i<define::maxkeyLen; i++){
     char cur = get_partial(leaves[0].key,i);
     for(int j = 1; j < leaf_cnt; j ++){
       auto l = leaves[j];
-      if(i > 128 || get_partial(l.key,i) != cur)
+      if(i > define::maxkeyLen || get_partial(l.key,i) != cur)
         return i - depth;
     }
   }
@@ -1989,7 +1990,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
   auto s5 = std::chrono::high_resolution_clock::now();
 #endif
   int empty_slot = 256 - s.size() - (update_flag == false);
-  if(empty_slot > define::threshold )
+  if(empty_slot > define::threshold || depth -1 == define::maxkeyLen)
   { // 去重
     int count = 0;
     // GlobalAddress new_old_page_addr = dsm->alloc(sizeof(InternalBuffer)); //还是搞成异地写 得多一次cas
@@ -2010,7 +2011,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     // 保存.val
     // map_buffer_cnt[new_old_page_addr.val] = s.size();
     old_page->unlock();
-    assert(old_page->hdr.count_1 <256);
+    // assert(old_page->hdr.count_1 <256);
     if(!update_flag){
       BufferEntry leaf_b_entry(0,get_partial(k,depth-1),1,leaf_type,leaf_addr);
       old_page->records[idx] = leaf_b_entry;
@@ -2131,7 +2132,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
     // BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
     if(!update_flag) mp1[new_leaf_partial].push_back( -1);
     bnode_addrs = new GlobalAddress[mp1.size()+1];
-    NodeType old_page_type = num_to_node_type((int)mp1.size());
+    NodeType old_page_type = num_to_node_type((int)mp1.size()-1);
     auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
     // 这里的深度貌似不对
     node_pages[new_node_num-1] = new (old_page_buffer) InternalPage(k,partial_len,depth-1-partial_len,old_page_type,rev_ptr);
@@ -2992,7 +2993,6 @@ search_finish:
 }
 
 
-/*
 void Tree::search_entries(const Key &from, const Key &to, int target_depth, std::vector<ScanContext> &res, CoroContext *cxt, int coro_id) {
   assert(dsm->is_register());
 
@@ -3002,27 +3002,74 @@ void Tree::search_entries(const Key &from, const Key &to, int target_depth, std:
   bool from_cache = false;
   volatile CacheEntry** entry_ptr_ptr = nullptr;
   CacheEntry* entry_ptr = nullptr;
+  CacheEntry* cache_entry_parent = nullptr;
+  CacheEntry** cache_entry_parent_ptr = nullptr;
+  CacheEntry* cache_entry_buffer = nullptr;
+  CacheEntry** cache_entry_buffer_ptr = nullptr;
   int entry_idx = -1;
   int cache_depth = 0;
+  std::vector<InternalEntry> buffer_slot;
 
   bool type_correct;
   char* page_buffer;
   bool is_valid;
   InternalPage* p_node;
+  InternalBuffer* bp_node = nullptr;
+  InternalBuffer buffer_node;
   Header hdr;
+  BufferHeader bhdr;
   int max_num;
+  int parent_parent_type = 0;
+  int buffer_from_cache_flag = 0;
+  int first_buffer = 0;
 
   // search local cache
 #ifdef TREE_ENABLE_CACHE
   from_cache = index_cache->search_from_cache(from, entry_ptr_ptr, entry_ptr, entry_idx);
   if (from_cache) { // cache hit
-    assert(entry_idx >= 0);
-    p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
-    p = entry_ptr->records[entry_idx];
     depth = entry_ptr->depth;
+   // cache_depth = depth;
+    parent_type  = entry_ptr->node_type;
+    if(entry_ptr->node_type == 1)   //如果cache找到的缓冲节点则直接去读吧！！！  后面如果是从cache来的 并且类型就是一个缓冲节点就不用再读一遍了 还是再读一次吧、、、
+    {
+      cache_entry_buffer = entry_ptr;
+      cache_entry_buffer_ptr = entry_ptr_ptr; 
+      // depth = entry_ptr->depth;
+      if(first_buffer)   //是第一个buffer 也就是位于第二层的buffer 并且这个buffer前面会有一个内部节点 这个时候cache就没有内部节点 所以没办法去失效
+      {
+        p_ptr = root_ptr_ptr;
+        p = get_root_ptr(cxt, coro_id);
+        parent_type = 0;
+        depth = 1;
+      }
+      else{
+        p_ptr = GADD(cache_entry_parent->addr,sizeof(InternalEntry)*entry_idx);
+        p = cache_entry_parent->records[entry_idx];
+        parent_type = cache_entry_parent->node_type;
+
+        cache_entry_buffer = entry_ptr;
+        cache_entry_buffer_ptr = entry_ptr_ptr; 
+        depth =cache_entry_parent->depth;
+        entry_ptr = cache_entry_parent;
+        entry_ptr_ptr = cache_entry_parent_ptr;
+        buffer_from_cache_flag = true;
+      }
+
+    }
+    else
+    {
+      p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
+      p = entry_ptr->records[entry_idx];
+      assert(entry_idx >= 0);
+      cache_entry_parent = entry_ptr;
+      cache_entry_parent_ptr = entry_ptr_ptr;
+      // parent_page.hdr.depth = entry_ptr->depth;
+    }
+    bp.val = p.val;
+    if(!first_buffer) assert(cache_entry_parent !=0);  //只要是从cache拿到的一定会拿到一个父节点  不见得不见得 如果是深度为2的buffer
   }
   else {
-    p_ptr = root_ptr_ptr;
+        p_ptr = root_ptr_ptr;
     p = get_root_ptr(cxt, coro_id);
     depth = 0;
   }
@@ -3045,7 +3092,66 @@ next:
     res.push_back(ScanContext(p, p_ptr, depth-1, from_cache, entry_ptr_ptr, entry_ptr, from, to, BORDER, BORDER));
     goto search_finish;
   }
-  if (p.is_leaf) {
+  if (p.child_type == 1) {   // 是buffer的话  在buffer里面找就行了 将buffer传进去 当然有可能直接在cache
+        auto buffer_buffer =  (dsm->get_rbuf(coro_id)).get_buffer_buffer();
+    bool buffer_res = false;
+    bool flag_atc = false;
+
+    if(buffer_from_cache_flag)
+     {
+      buffer_slot = cache_entry_buffer->records;
+      bp_node = &buffer_node;
+      bp_node->hdr.depth = depth;
+      bp_node->rev_ptr = p_ptr;
+      bp_node->lock_byte = 0;
+      bufffer_from_cache_cnt[dsm->getMyThreadID()] ++;
+     }
+     else{
+read_buffer:
+#ifdef TEST_TIME
+      auto read_buffer_start = std::chrono::high_resolution_clock::now();
+#endif
+      // auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
+      read_buffer_node(p.addr(), buffer_buffer, p_ptr, depth, buffer_from_cache_flag,cxt, coro_id);
+
+      // auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
+      // auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
+      // read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count();  
+#ifdef TEST_TIME
+      auto read_buffer_stop = std::chrono::high_resolution_clock::now();
+      auto read_buffer_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_stop - read_buffer_start);  
+      search_read_buffer_time[dsm->getMyThreadID()] += read_buffer_duration.count();
+#endif      
+      bp_node = (InternalBuffer *)buffer_buffer;
+      is_valid =    bp_node->hdr.depth <= depth && (!buffer_from_cache_flag || bp_node->rev_ptr == p_ptr);
+      if (!is_valid) {  // node deleted || outdated cache entry in cached node
+#ifdef USE_CN_CACHE
+        if (buffer_from_cache_flag) {
+          // index_cache->invalidate(entry_ptr_ptr, entry_ptr); //invalid 父节点 父节点其实没有必要失效吧
+          index_cache->invalidate(cache_entry_buffer_ptr, cache_entry_buffer); //invalid 缓冲节点
+        }
+#endif
+        // re-read node entry
+        auto entry_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
+        dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
+        p = *(InternalEntry *)entry_buffer;
+        from_cache = false;
+        buffer_from_cache_flag = false;
+        // retry_flag = INVALID_Buffer_NODE;
+        goto next;
+      }
+    }
+    for (int i = 0; i < 256; ++ i) {
+      auto old_be = bp_node->records[i];
+      if (old_be != InternalEntry::Null() && old_be.partial == get_partial(from, depth)) {
+        p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + i * sizeof(InternalEntry));
+        p = *(InternalEntry *)&old_be;
+        from_cache = false;
+        depth ++;
+        res.push_back(ScanContext(p, p_ptr, depth-1, from_cache, entry_ptr_ptr, entry_ptr, from, to, BORDER, BORDER));
+      }
+      if (old_be == BufferEntry::Null()) break;
+    }
     goto search_finish;
   }
 
@@ -3098,7 +3204,7 @@ next:
   for (int i = 0; i < max_num; ++ i) {
     auto old_e = p_node->records[i];
     if (old_e != InternalEntry::Null() && old_e.partial == get_partial(from, hdr.depth + hdr.partial_len)) {
-      p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header) + i * sizeof(InternalEntry));
+      p_ptr = GADD(p.addr(), sizeof(GlobalAddress) + i * sizeof(InternalEntry));
       p = old_e;
       from_cache = false;
       depth ++;
@@ -3113,14 +3219,139 @@ search_finish:
 #endif
   return;
 }
-*/
+
 /*
   range query, DO NOT support corotine currently
 */
 // [from, to)
 /**/
 void Tree::range_query(const Key &from, const Key &to, std::map<Key, Value> &ret) {
+  thread_local std::vector<ScanContext> survivors;
+  thread_local std::vector<RdmaOpRegion> rs;
+  thread_local std::vector<ScanContext> si;
+  thread_local std::vector<RangeCache> range_cache;
+  thread_local std::set<uint64_t> tokens;
 
+  assert(dsm->is_register());
+  if (to <= from) return;
+
+  range_cache.clear();
+  tokens.clear();
+
+  auto range_buffer = (dsm->get_rbuf(0)).get_range_buffer();
+  int cnt;
+
+  // search local cache
+#ifdef TREE_ENABLE_CACHE
+  index_cache->search_range_from_cache(from, to, range_cache); //  父节点的slot也需要存下来
+  // entries in cache
+  for (auto & rc : range_cache) {
+    survivors.push_back(ScanContext(rc.e, rc.e_ptr, rc.depth, true, rc.entry_ptr_ptr, rc.entry_ptr,
+                                    std::max(rc.from, from),
+                                    std::min(rc.to, to - 1),
+                                    rc.from <= from   ? BORDER : INSIDE,   // TODO: outside?
+                                    rc.to   >= to - 1 ? BORDER : INSIDE));
+  }
+  if (range_cache.empty()) {
+    int partial_len = longest_common_prefix(from, to - 1, 0);
+    search_entries(from, to - 1, partial_len, survivors, nullptr, 0);
+  }
+#else
+  int partial_len = longest_common_prefix(from, to - 1, 0);
+  search_entries(from, to - 1, partial_len, survivors, nullptr, 0); //surv存的是from到to的共同前缀的slot
+#endif
+
+  int idx = 0;
+next_level:
+  idx  ++;
+  if (survivors.empty()) {  // exit
+    return;
+  }
+  rs.clear();
+  si.clear();
+
+  // 1. batch read the current level of nodes / leaves
+  cnt = 0;
+  for(auto & s : survivors) {
+    auto& p = s.e;
+    auto token = (uint64_t)p.addr();
+    if (tokens.find(token) == tokens.end()) {
+      RdmaOpRegion r;
+      r.source     = (uint64_t)range_buffer + cnt * define::allocationPageSize;
+      r.dest       = p.addr();
+      r.size       = p.child_type == 0 ?  sizeof(Leaf_kv) : (
+                              s.from_cache ?  // TODO: art
+                              (sizeof(GlobalAddress) + sizeof(Header) + node_type_to_num(NODE_256) * sizeof(InternalEntry)) :
+                              (sizeof(GlobalAddress) + sizeof(Header) + node_type_to_num(p.type()) * sizeof(InternalEntry))
+                          );
+      r.is_on_chip = false;
+      rs.push_back(r);
+      si.push_back(s);
+      cnt ++;
+      tokens.insert(token);
+    }
+  }
+  survivors.clear();
+  // printf("cnt=%d\n", cnt);
+
+  // 2. separate requests with its target node, and read them using doorbell batching for each batch
+  dsm->read_batches_sync(rs);
+
+  // 3. process the read nodes and leaves
+  for (int i = 0; i < cnt; ++ i) {
+    // 3.1 if it is leaf, check & save result
+    if (si[i].e.child_type == 0) {
+      Leaf_kv *leaf = (Leaf_kv *)(range_buffer + i * define::allocationPageSize);
+      auto k = leaf->get_key();
+
+      if (!leaf->is_valid(si[i].e_ptr, si[i].from_cache)) {
+        // invalidate the old leaf entry cache
+#ifdef TREE_ENABLE_CACHE
+        if (si[i].from_cache) {
+          index_cache->invalidate(si[i].entry_ptr_ptr, si[i].entry_ptr);
+        }
+#endif
+        // re-read leaf entry
+        auto entry_buffer = (dsm->get_rbuf(0)).get_entry_buffer();
+        dsm->read_sync((char *)entry_buffer, si[i].e_ptr, sizeof(InternalEntry));
+        si[i].e = *(InternalEntry *)entry_buffer;
+        si[i].from_cache = false;
+        survivors.push_back(si[i]);
+        continue;
+      }
+      if (!leaf->is_consistent()) {  // re-read leaf is unconsistent
+        survivors.push_back(si[i]);
+      }
+
+      if (k >= from && k < to) {  // [from, to)
+        ret[k] = leaf->get_value();
+        // TODO: cache hit ratio
+      }
+    }
+    // 3.2 if it is node, check & choose in-range entry in it
+    else {  //不管是buffer还是内部节点都可以在这里找
+      InternalPage* node = (InternalPage *)(range_buffer + i * define::allocationPageSize);
+      if (!node->is_valid(si[i].e_ptr, si[i].depth + 1, si[i].from_cache)) {  // node deleted || outdated cache entry in cached node
+#ifdef TREE_ENABLE_CACHE
+        // invalidate the old node cache
+        if (si[i].from_cache) {
+          index_cache->invalidate(si[i].entry_ptr_ptr, si[i].entry_ptr);
+        }
+#endif
+        // re-read node entry
+        auto entry_buffer = (dsm->get_rbuf(0)).get_entry_buffer();
+        dsm->read_sync((char *)entry_buffer, si[i].e_ptr, sizeof(InternalEntry));
+        si[i].e = *(InternalEntry *)entry_buffer;
+        si[i].from_cache = false;
+        survivors.push_back(si[i]);
+        continue;
+      }
+      range_query_on_page(node, si[i].from_cache, si[i].depth,
+                          si[i].e_ptr, si[i].e,
+                          si[i].from, si[i].to, si[i].l_state, si[i].r_state, survivors);
+    }
+  }
+  goto next_level;
 }
 
 
@@ -3128,7 +3359,68 @@ void Tree::range_query_on_page(InternalPage* page, bool from_cache, int depth,
                                GlobalAddress p_ptr, InternalEntry p,
                                const Key &from, const Key &to, State l_state, State r_state,
                                std::vector<ScanContext>& res) {
+  // check header
+  auto& hdr = page->hdr;
+  // assert(ei.depth + 1 == hdr.depth);  // only in condition of no concurrent insert
+#ifdef TREE_ENABLE_CACHE
+  if (depth == hdr.depth - 1) {
+    index_cache->add_to_cache(from, page, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header)));
+  }
+#endif
 
+  if (l_state == BORDER) { // left state: BORDER --> other state
+    int j;
+    for (j = 0; j < hdr.partial_len; ++ j) if (hdr.partial[j] != get_partial(from, hdr.depth + j)) break;
+    if (j == hdr.partial_len) l_state = BORDER;
+    else if (hdr.partial[j] > get_partial(from, hdr.depth + j)) l_state = INSIDE;
+    else l_state = OUTSIDE;
+  }
+  if (r_state == BORDER) {  // right state: BORDER --> other state
+    int j;
+    for (j = 0; j < hdr.partial_len; ++ j) if (hdr.partial[j] != get_partial(to, hdr.depth + j)) break;
+    if (j == hdr.partial_len) r_state = BORDER;
+    else if (hdr.partial[j] < get_partial(to, hdr.depth + j)) r_state = INSIDE;
+    else r_state = OUTSIDE;
+  }
+  if (l_state == OUTSIDE || r_state == OUTSIDE) return;
+
+  // check partial & choose entry from records
+  const uint8_t from_partial = get_partial(from, hdr.depth + hdr.partial_len);
+  const uint8_t to_partial   = get_partial(to  , hdr.depth + hdr.partial_len);
+  int max_num = node_type_to_num(hdr.type());
+  for(int j = 0; j < max_num; ++ j) {
+    const auto& e = page->records[j];
+    if (e == InternalEntry::Null()) continue;
+
+    auto e_l_state = l_state;
+    auto e_r_state = r_state;
+
+    if (e_l_state == BORDER)  {  // left state: BORDER --> other state
+      if (e.partial == from_partial) e_l_state = BORDER;
+      else if (e.partial > from_partial) e_l_state = INSIDE;
+      else e_l_state = OUTSIDE;
+    }
+    if (e_r_state == BORDER){    // right state: BORDER --> other state
+      if (e.partial == to_partial) e_r_state = BORDER;
+      else if (e.partial < to_partial) e_r_state = INSIDE;
+      else e_r_state = OUTSIDE;
+    }
+    if (e_l_state != OUTSIDE && e_r_state != OUTSIDE) {
+      auto next_from = from;
+      auto next_to = to;
+      // calculate [from, to) for this survivor entry
+      if (e_l_state == INSIDE) {
+        for (int i = 0; i < hdr.partial_len; ++ i) next_from = remake_prefix(next_from, hdr.depth + i, hdr.partial[i]);
+        next_from = remake_prefix(next_from, hdr.depth + hdr.partial_len, e.partial);
+      }
+      if (e_r_state == INSIDE) {
+        for (int i = 0; i < hdr.partial_len; ++ i) next_to   = remake_prefix(next_to  , hdr.depth + i, hdr.partial[i]);
+        next_to   = remake_prefix(next_to  , hdr.depth + hdr.partial_len, e.partial);
+      }
+      res.push_back(ScanContext(e, GADD(p.addr(), sizeof(GlobalAddress) + sizeof(Header) + j * sizeof(InternalEntry)),
+                                hdr.depth + hdr.partial_len, false, nullptr, nullptr, next_from, next_to, e_l_state, e_r_state));
+    }
+  }
 }
 
 

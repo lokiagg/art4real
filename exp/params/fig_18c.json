@@ -1,11 +1,12 @@
 {
-    "methods": ["SMART", "Sherman", "ART"],
+    "methods": ["Gecko"],
     "workload_names": ["YCSB C", "c"],
-    "target_epoch": 9,
-    "client_num": [16, 16],
-    "MN_num": 2,
+    "target_epoch": 10,
+    "client_num": [1, 40],
+    "MN_num": 1,
     "key_size": "randint",
-    "value_size": [8, 16, 32, 64, 128, 256, 512, 1024],
-    "cache_size": 6000,
+    "value_size": 8,
+    "cache_size": 8192,
+    "threshold": [100,110,120,130,140,150,160,170,180,190,200,210,220],
     "span_size": 32
 }

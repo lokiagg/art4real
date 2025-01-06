@@ -46,7 +46,7 @@ struct CacheEntry {
         records.push_back(*((InternalEntry*)&e));
     }
     }
-    assert(depth<7);
+    // assert(depth<7);
   }
 
   uint64_t content_size() const {

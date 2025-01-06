@@ -633,6 +633,9 @@ printf("No cache\n");
       need_stop = true;
     }
 
+    /*
+      SMART 原来代码开始
+    */
     if (dsm->getMyNodeID() == 0) {
       printf("total %lu", all_retry_cnt[0]);
       for (int i = 1; i < MAX_FLAG_NUM; ++ i) {
@@ -640,69 +643,106 @@ printf("No cache\n");
       }
       printf("\n");
     }
-    
+
     double per_node_tp = cap * 1.0 / microseconds;
-    double per_MN_tp[MEMORY_NODE_NUM];
-    memset(per_MN_tp, 0, sizeof(double) * MEMORY_NODE_NUM);    
-    for(int j=0;j<MEMORY_NODE_NUM;j++)
-      {
-        per_MN_tp[j]=MN_cap[j]*1.0/microseconds;
-      }       
     uint64_t cluster_tp = dsm->sum((uint64_t)(per_node_tp * 1000));
-    printf("cluster tp:%" PRIu64" \n",cluster_tp);
-    printf("%d, throughput %.4f ,duration %d cache hit rate: %lf\n", dsm->getMyNodeID(), per_node_tp, microseconds,hit * 1.0 / all);
-    uint64_t MN_cluster_tp[MEMORY_NODE_NUM];
-    memset(MN_cluster_tp,0,sizeof(uint64_t)*MEMORY_NODE_NUM);
-    for(int j=0;j<MEMORY_NODE_NUM;j++)
-    {
-      printf("CN %d MN %d, throughput %.4f \n",dsm->getMyNodeID(), j, (MN_tps[j]-MN_tp[j])*1.0/microseconds);
-      uint64_t MN_cluster_tp=dsm->sum_MN((uint64_t)(per_MN_tp[j] * 1000),j);
-      if(dsm->getMyNodeID()==0) printf("MN %d all throughput %.3f \n",j,MN_cluster_tp/1000.0);
-    }
 
+    printf("%d, throughput %.4f\n", dsm->getMyNodeID(), per_node_tp);
 
-    for(int j=0;j<MEMORY_NODE_NUM;j++)
-      {
-        MN_tp[j]=MN_tps[j];
-        MN_data[j]=MN_d[j];
-      }
-    if (dsm->getMyNodeID() == 0) 
-    {
-      printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64" \n",insert[0],insert[1],insert[2],insert[3],insert[4],insert[5],insert[6],insert[7]);
-      printf("insert time : %" PRIu64",internal empty entry time: %" PRIu64",internal extend empty entry time: %" PRIu64",internal header split time: %" PRIu64",buffer empty entry time: %" PRIu64",buffer header split time: %" PRIu64",buffer reconstruct time: %" PRIu64" in place update time: %" PRIu64"\n",insert_total_time[0],insert_total_time[1],insert_total_time[2],insert_total_time[3],insert_total_time[4],insert_total_time[5],insert_total_time[6],insert_total_time[7]);
-      printf("search cache time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",search_cache_total_time[0],search_cache_total_time[1],search_cache_total_time[2],search_cache_total_time[3],search_cache_total_time[4],search_cache_total_time[5],search_cache_total_time[6],search_cache_total_time[7]);
-      printf("read buffer time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_buffer_total_time[0],read_buffer_total_time[1],read_buffer_total_time[2],read_buffer_total_time[3],read_buffer_total_time[4],read_buffer_total_time[5],read_buffer_total_time[6],read_buffer_total_time[7]);
-      printf("read internal time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_internal_total_time[0],read_internal_total_time[1],read_internal_total_time[2],read_internal_total_time[3],read_internal_total_time[4],read_internal_total_time[5],read_internal_total_time[6],read_internal_total_time[7]);
-      printf("read leaves time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_leaves_total_time[0],read_leaves_total_time[1],read_leaves_total_time[2],read_leaves_total_time[3],read_leaves_total_time[4],read_leaves_total_time[5],read_leaves_total_time[6],read_leaves_total_time[7]);               
-      // printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
-      // printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
-      // printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
-      // printf("insert avg: %f buffer loop cnt is %" PRIu64" ,buffer loop time is  %" PRIu64"  avg : %f \n",insert_total_time[0]*1.0/insert[0],buffer_loop_cnt,buffer_loop_time,buffer_loop_time*1.0/buffer_loop_cnt);
-      printf("insert avg: %f ,var time:%f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy time avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],var_time_c*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_time1*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
-      // printf("search cnt: %" PRIu64",search time :%" PRIu64" ,search avg: %f ,search cache avg: %f,read internal avg: %f ,read buffer :%f ,cache op time :%f ,buffer loop time :%f ,read leaf:%f \n",search_c,search_t,search_t*1.0/search_c,s_search_cache*1.0/search_c,s_read_internal*1.0/search_c,s_read_buffer*1.0/search_c,s_cache_op*1.0/search_c,s_buffer_loop*1.0/search_c,s_read_leaf*1.0/search_c);
-      // printf("buffer empty rate :%f \n",1-(buffer_s*1.0/buffer_n_t));
-      // printf("buffer cnt  %" PRIu64"\n",buffer_node);
-          // for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
-        // printf("node_type%d %lu   ", i, read_node_type_cnt1[i]);
-    // }
-      uint64_t smo_total = 0;
-      uint64_t smo_bd_total[smo_bd_cnt];
-      memset(smo_bd_total,0,sizeof(smo_bd_total));
-      for(int j = 0; j < MAX_APP_THREAD; j++)
-        for(int i = 0; i < smo_bd_cnt; i++){
-          smo_total += smo_bd[i][j];
-          smo_bd_total[i] += smo_bd[i][j];
-      }
-      for(int i = 0; i < smo_bd_cnt; i++){
-        double r = (double)smo_bd_total[i] / smo_total;
-        std::cout << smo_bd_str[i] << "\ttime: " << smo_bd_total[i] << "\tratio: " << r * 100 << "%" << std::endl;
-      }
-      printf("\n buffer cnt  %" PRIu64"\n",read_buffer_node);
+    if (dsm->getMyNodeID() == 0) {
+      printf("epoch %d passed!\n", count);
+      printf("cluster throughput %.3f\n", cluster_tp / 1000.0);
+      printf("cache hit rate: %lf\n", hit * 1.0 / all);
+      printf("avg. lock/cas fail cnt: %lf\n", lock_fail_cnt * 1.0 / try_write_op_cnt);
+      printf("write combining rate: %lf\n", write_handover_cnt * 1.0 / try_write_op_cnt);
+      printf("read delegation rate: %lf\n", read_handover_cnt * 1.0 / try_read_op_cnt);
+      printf("read leaf retry rate: %lf\n", read_leaf_retry_cnt * 1.0 / try_read_leaf_cnt);
+      printf("read invalid leaf rate: %lf\n", leaf_cache_invalid_cnt * 1.0 / try_read_leaf_cnt);
+      printf("read node repair rate: %lf\n", read_node_repair_cnt * 1.0 / try_read_node_cnt);
+      printf("buffer cnt  %" PRIu64"\n",buffer_node);
+      printf("buffer empty rate :%f \n",1-(buffer_s*1.0/buffer_n_t));
+      // printf("read invalid node rate: %lf\n", all_retry_cnt[INVALID_NODE] * 1.0 / try_read_node_cnt);
+      // printf("search cnt:%" PRIu64",search time avg:%f,read root avg:%f ,search cache avg:%f ,read internal avg:%f ,add cache times  %f,add cache avg:%f ,read leaf avg:%f .\n",search_c,search_t*1.0/search_c,read_r*1.0/search_c,search_cache*1.0/search_c,read_i*1.0/search_c,add_cache_c*1.0/search_c,add_c*1.0/search_c,read_l*1.0/search_c);
       for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
-        printf("node_type%d %lu   ", i, read_internal_node[i]);
+        printf("node_type%d %lu   ", i, read_node_type_cnt[i]);
       }
-    } 
-    printf("\nwrite combining rate: %lf\n", write_handover_cnt * 1.0 / try_write_op_cnt);
+      // printf("true: %" PRIu64",false: %" PRIu64"\n",true_res,false_res);
+      printf("\n\n");
+    }
+    /*
+      原有代码结束
+    */
+
+    // if (dsm->getMyNodeID() == 0) {
+    //   printf("total %lu", all_retry_cnt[0]);
+    //   for (int i = 1; i < MAX_FLAG_NUM; ++ i) {
+    //     printf(",  retry%d %lu", i, all_retry_cnt[i]);
+    //   }
+    //   printf("\n");
+    // }
+    
+    // double per_node_tp = cap * 1.0 / microseconds;
+    // double per_MN_tp[MEMORY_NODE_NUM];
+    // memset(per_MN_tp, 0, sizeof(double) * MEMORY_NODE_NUM);    
+    // for(int j=0;j<MEMORY_NODE_NUM;j++)
+    //   {
+    //     per_MN_tp[j]=MN_cap[j]*1.0/microseconds;
+    //   }       
+    // uint64_t cluster_tp = dsm->sum((uint64_t)(per_node_tp * 1000));
+    // printf("cluster tp:%" PRIu64" \n",cluster_tp);
+    // printf("%d, throughput %.4f ,duration %d cache hit rate: %lf\n", dsm->getMyNodeID(), per_node_tp, microseconds,hit * 1.0 / all);
+    // uint64_t MN_cluster_tp[MEMORY_NODE_NUM];
+    // memset(MN_cluster_tp,0,sizeof(uint64_t)*MEMORY_NODE_NUM);
+    // for(int j=0;j<MEMORY_NODE_NUM;j++)
+    // {
+    //   printf("CN %d MN %d, throughput %.4f \n",dsm->getMyNodeID(), j, (MN_tps[j]-MN_tp[j])*1.0/microseconds);
+    //   uint64_t MN_cluster_tp=dsm->sum_MN((uint64_t)(per_MN_tp[j] * 1000),j);
+    //   if(dsm->getMyNodeID()==0) printf("MN %d all throughput %.3f \n",j,MN_cluster_tp/1000.0);
+    // }
+
+
+    // for(int j=0;j<MEMORY_NODE_NUM;j++)
+    //   {
+    //     MN_tp[j]=MN_tps[j];
+    //     MN_data[j]=MN_d[j];
+    //   }
+    // if (dsm->getMyNodeID() == 0) 
+    // {
+    //   printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64" \n",insert[0],insert[1],insert[2],insert[3],insert[4],insert[5],insert[6],insert[7]);
+    //   printf("insert time : %" PRIu64",internal empty entry time: %" PRIu64",internal extend empty entry time: %" PRIu64",internal header split time: %" PRIu64",buffer empty entry time: %" PRIu64",buffer header split time: %" PRIu64",buffer reconstruct time: %" PRIu64" in place update time: %" PRIu64"\n",insert_total_time[0],insert_total_time[1],insert_total_time[2],insert_total_time[3],insert_total_time[4],insert_total_time[5],insert_total_time[6],insert_total_time[7]);
+    //   printf("search cache time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",search_cache_total_time[0],search_cache_total_time[1],search_cache_total_time[2],search_cache_total_time[3],search_cache_total_time[4],search_cache_total_time[5],search_cache_total_time[6],search_cache_total_time[7]);
+    //   printf("read buffer time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_buffer_total_time[0],read_buffer_total_time[1],read_buffer_total_time[2],read_buffer_total_time[3],read_buffer_total_time[4],read_buffer_total_time[5],read_buffer_total_time[6],read_buffer_total_time[7]);
+    //   printf("read internal time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_internal_total_time[0],read_internal_total_time[1],read_internal_total_time[2],read_internal_total_time[3],read_internal_total_time[4],read_internal_total_time[5],read_internal_total_time[6],read_internal_total_time[7]);
+    //   printf("read leaves time : %" PRIu64",1 : %" PRIu64",2 : %" PRIu64",3 : %" PRIu64",4 : %" PRIu64",5 : %" PRIu64",6 : %" PRIu64" 7 : %" PRIu64"\n",read_leaves_total_time[0],read_leaves_total_time[1],read_leaves_total_time[2],read_leaves_total_time[3],read_leaves_total_time[4],read_leaves_total_time[5],read_leaves_total_time[6],read_leaves_total_time[7]);               
+    //   // printf("write cnt: %" PRIu64",write time: %" PRIu64",write avg time : %lf ,cas cnt: %" PRIu64",cas time: %" PRIu64" ,cas avg time %lf \n",write_cnt_total,write_time_total,(double)write_time_total *1.0/write_cnt_total,cas_cnt_total,cas_time_total,(double)cas_time_total *1.0/cas_cnt_total);
+    //   // printf("art depth is %d ,loop time is :  %" PRIu64"\n",highest_depth,loop_time[0]);
+    //   // printf("buffer from cache cnt is %" PRIu64" ,buffer from cache times rate is : %f \n",buffer_cache_cnt,buffer_cache_cnt*1.0/insert[0]);
+    //   // printf("insert avg: %f buffer loop cnt is %" PRIu64" ,buffer loop time is  %" PRIu64"  avg : %f \n",insert_total_time[0]*1.0/insert[0],buffer_loop_cnt,buffer_loop_time,buffer_loop_time*1.0/buffer_loop_cnt);
+    //   printf("insert avg: %f ,var time:%f ,time before insert buffer empty slot avg: %f ,search cache avg: %f , copy time avg: %f ,read buffer avg: %f ,read internal avg: %f ,internal loop avg: %f ,buffer loop  avg : %f \n",insert_total_time[0]*1.0/insert[0],var_time_c*1.0/insert[0],dur1*1.0/insert[0],search_cache_total_time[0]*1.0/search_cache,cp_time1*1.0/insert[0],read_buffer_total_time[0]*1.0/insert[0],read_internal_total_time[0]*1.0/insert[0],internal_slot_t*1.0/insert[0],buffer_loop_time*1.0/insert[0]);
+    //   // printf("search cnt: %" PRIu64",search time :%" PRIu64" ,search avg: %f ,search cache avg: %f,read internal avg: %f ,read buffer :%f ,cache op time :%f ,buffer loop time :%f ,read leaf:%f \n",search_c,search_t,search_t*1.0/search_c,s_search_cache*1.0/search_c,s_read_internal*1.0/search_c,s_read_buffer*1.0/search_c,s_cache_op*1.0/search_c,s_buffer_loop*1.0/search_c,s_read_leaf*1.0/search_c);
+    //   // printf("buffer empty rate :%f \n",1-(buffer_s*1.0/buffer_n_t));
+    //   // printf("buffer cnt  %" PRIu64"\n",buffer_node);
+    //       // for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
+    //     // printf("node_type%d %lu   ", i, read_node_type_cnt1[i]);
+    // // }
+    //   uint64_t smo_total = 0;
+    //   uint64_t smo_bd_total[smo_bd_cnt];
+    //   memset(smo_bd_total,0,sizeof(smo_bd_total));
+    //   for(int j = 0; j < MAX_APP_THREAD; j++)
+    //     for(int i = 0; i < smo_bd_cnt; i++){
+    //       smo_total += smo_bd[i][j];
+    //       smo_bd_total[i] += smo_bd[i][j];
+    //   }
+    //   for(int i = 0; i < smo_bd_cnt; i++){
+    //     double r = (double)smo_bd_total[i] / smo_total;
+    //     std::cout << smo_bd_str[i] << "\ttime: " << smo_bd_total[i] << "\tratio: " << r * 100 << "%" << std::endl;
+    //   }
+    //   printf("\n buffer cnt  %" PRIu64"\n",read_buffer_node);
+    //   for (int i = 1; i < MAX_NODE_TYPE_NUM; ++ i) {
+    //     printf("node_type%d %lu   ", i, read_internal_node[i]);
+    //   }
+    // } 
+    // printf("\nwrite combining rate: %lf\n", write_handover_cnt * 1.0 / try_write_op_cnt);
 /*
     if (dsm->getMyNodeID() == 0) {
       printf("epoch %d passed!\n", count);

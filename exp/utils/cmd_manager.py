@@ -48,7 +48,9 @@ class CMDManager(object):
         port = 22
         cli = paramiko.SSHClient()
         cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        cli.connect(hostname, port, compress=True)
+        pem_private_key_path = '/home/hyy/.ssh/id_rsa_pem'
+        private_key = paramiko.RSAKey.from_private_key_file(pem_private_key_path)
+        cli.connect(hostname, port, compress=True, pkey=private_key)
         return cli
 
     @func_set_timeout(60)
@@ -94,7 +96,8 @@ class CMDManager(object):
         return out
 
 
-    @func_set_timeout(600)
+    @func_set_timeout(7
+                      0)
     def all_long_execute(self, command: str, CN_num: int = -1):
         if CN_num < 0:  # -1 means use all CNs
             CN_num = len(self.__CNs)

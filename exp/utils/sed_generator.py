@@ -24,15 +24,19 @@ def sed_MN_num(config_path: str, MN_num: int):
     new_MN_node = f"#define MEMORY_NODE_NUM {MN_num}"
     return f"sed -i 's/{old_MN_code}/{new_MN_node}/g' {config_path}"
 
+def sed_threshold(config_path: str, threshold: int):
+    old_threshold = "^constexpr uint8_t  threshold = .*"
+    new_threshold = f"constexpr uint8_t  threshold = {threshold};"
+    return f"sed -i 's/{old_threshold}/{new_threshold}/g' {config_path}"
+
 
 def sed_span_size(config_path: str, span_size: int):  # only for Sherman
     old_span_code = "^constexpr int spanSize = .*"
     new_span_node = f"constexpr int spanSize = {span_size};"
     return f"sed -i 's/{old_span_code}/{new_span_node}/g' {config_path}"
 
-
-def generate_sed_cmd(config_path: str, is_Btree: bool, key_size: int, value_size: int, cache_size: int, MN_num: int, span_size: Optional[int] = None):
-    cmd = f"{sed_key_len(config_path, key_size)} && {sed_val_len(config_path, value_size)} && {sed_cache_size(config_path, cache_size)} && {sed_MN_num(config_path, MN_num)}"
+def generate_sed_cmd(config_path: str, is_Btree: bool, key_size: int, value_size: int, cache_size: int, MN_num: int, threshold: Optional[int] = 100, span_size: Optional[int] = None):
+    cmd = f"{sed_key_len(config_path, key_size)} && {sed_val_len(config_path, value_size)} && {sed_cache_size(config_path, cache_size)} && {sed_MN_num(config_path, MN_num)} && {sed_threshold(config_path, threshold)}"
     if is_Btree:  # change span size for Sherman
         assert(span_size is not None)
         cmd += f"&& {sed_span_size(config_path, span_size)}"

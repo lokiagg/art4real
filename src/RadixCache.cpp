@@ -35,7 +35,7 @@ v = (uint64_t)page->hdr;
       partial_len = 0 ;
     } 
   if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
-  assert(partial_len == 0);
+  // assert(partial_len == 0);
   std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
   for (int i = 0; i < partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
@@ -67,7 +67,7 @@ bool RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPag
   for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
   auto new_entry = new CacheEntry(p_node,node_type,node_addr);
-  assert(new_entry->depth <7);
+  // assert(new_entry->depth <7);
   // CacheEntry old_addr = *new_entry;
   // assert(new_entry->depth <8);
 
@@ -500,27 +500,51 @@ next:
 
 
 void RadixCache::search_range_from_cache(const Key &from, const Key &to, std::vector<RangeCache> &result) {
-/*  GlobalAddress p_ptr;
+  GlobalAddress p_ptr;
   InternalEntry p;
   int depth;
-  volatile CacheEntry** entry_ptr_ptr = nullptr;
+  CacheEntry** entry_ptr_ptr = nullptr;
   CacheEntry* entry_ptr = nullptr;
+  CacheEntry* cache_entry_parent = nullptr;
+  CacheEntry** cache_entry_parent_ptr = nullptr;
+  CacheEntry* cache_entry_buffer = nullptr;
+  CacheEntry** cache_entry_buffer_ptr = nullptr;
+  int parent_parent_type = 0;
+  int buffer_entry_idx = -1;
   int entry_idx = -1;
+  int first_buffer = 0;
+  std::vector<InternalEntry> buffer_slot;
 
   for (auto k = from; k < to; k = k + 1) {
-    auto e = search_from_cache(k, entry_ptr_ptr, entry_ptr, entry_idx);
-    if (e) {
+    auto e = search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer); 
+    if (e) {  //找到的只可能是一个内部节点的槽 也有可能是一个缓冲节点 当是一个缓冲节点的时候直接加进去
+    if(entry_ptr->node_type == 1){
+      depth = entry_ptr->depth;
+      buffer_slot = entry_ptr->records;  
+      for(int i =0;i< buffer_slot.size();i++)
+      {
+        auto bp=buffer_slot[i];
+        if(bp.partial == get_partial(k,depth))
+        {
+          p_ptr = GADD(entry_ptr->addr,i*sizeof(BufferEntry));
+          result.push_back(RangeCache(k, k, p_ptr, *(InternalEntry*)&bp, depth, entry_ptr_ptr, entry_ptr));
+        }
+
+      }
+        
+    }
+    else{
       assert(entry_idx >= 0);
       p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
       p = entry_ptr->records[entry_idx];
       depth = entry_ptr->depth;
-
-      auto leftmost = p.is_leaf ? k : get_leftmost(k, depth);
-      auto rightmost = p.is_leaf ? k : get_rightmost(k, depth);
+      auto leftmost = p.child_type == 0 ? k : get_leftmost(k, depth);
+      auto rightmost = p.child_type == 0 ? k : get_rightmost(k, depth);
       result.push_back(RangeCache(leftmost, rightmost, p_ptr, p, depth, entry_ptr_ptr, entry_ptr));
     }
+    }
   }
-  */
+  
   return;
 }
 

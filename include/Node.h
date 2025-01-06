@@ -505,10 +505,10 @@ struct RangeCache {
   GlobalAddress e_ptr;
   InternalEntry e;
   int depth;
-  volatile CacheEntry** entry_ptr_ptr;
+  CacheEntry** entry_ptr_ptr;
   CacheEntry* entry_ptr;
   RangeCache() {}
-  RangeCache(const Key& from, const Key& to, const GlobalAddress& e_ptr, const InternalEntry& e, int depth, volatile CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) :
+  RangeCache(const Key& from, const Key& to, const GlobalAddress& e_ptr, const InternalEntry& e, int depth,CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) :
              from(from), to(to), e_ptr(e_ptr), e(e), depth(depth), entry_ptr_ptr(entry_ptr_ptr), entry_ptr(entry_ptr) {}
 };
 
