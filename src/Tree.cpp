@@ -402,6 +402,7 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
   path[depth] = p.partial;
   depth ++;  
   cache_depth = depth; 
+  if(from_cache &&!first_buffer) p_ptr = GADD(cache_entry_parent->addr,sizeof(InternalEntry)*entry_idx);
 
   UNUSED(is_update);  // is_update is only used in ROWEX_ART baseline
 // if(buffer_from_cache_flag)
@@ -412,7 +413,9 @@ void Tree::insert(const Key &k, Value v, CoroContext *cxt, int coro_id, bool is_
 //   }
 // }
   // int retry_read_buffer = 0;
+  // assert(p_ptr.offset>99999);
 next:
+  // assert(p_ptr.offset>99999);
   retry_cnt[dsm->getMyThreadID()][retry_flag] ++;
 if(parent_type ==0)  //一个内部节点    1.继续往下找  2. 有一个空槽 生成新的缓冲节点 3.内部节点分裂 分裂之后生成新的缓冲节点 4.内部节点满了扩展  并生成新的缓冲节点  
 {
@@ -780,7 +783,7 @@ faa_counter:
   assert(p.child_type != 0);
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth,from_cache,cxt, coro_id);
   buffer_to_in = false;
-  
+
 #ifdef TEST_TIME
   auto read_internal_node_stop = std::chrono::high_resolution_clock::now();
   auto read_internal_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_internal_node_stop - read_internal_node_start);  
@@ -790,7 +793,15 @@ faa_counter:
 }
   p_node = (InternalPage *)page_buffer;
   // assert(p_node->hdr.partial_len == 0);  //新增的
-
+/*  if(p_node->hdr.partial_len>0)
+  {
+    printf("from cache? %d\n",(int)from_cache);
+    printf("depth:%d\n",depth);
+    printf("depth from node %d\n",p_node->hdr.depth);
+    printf("addr of node %" PRIu64"\n",p.addr());
+    assert(false);
+  }
+*/
   parent_page = *p_node;
   parent_page_ptr = p.addr();  //先不着急加到cache里面去   有可能会变成进行节点类型转换
   // assert(p_node->l_padding == 99 && buffer_to_in == false);
@@ -836,6 +847,12 @@ internal_node:
       auto cas_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
       int partial_len = hdr.depth + i - depth;  // hdr.depth may be outdated, so use partial_len wrt. depth
       bool res = out_of_place_write_node(k, v,depth,leaf_addr,leaf_type,klen,vlen,partial_len,hdr.partial[i], p_ptr, p, node_ptr, cas_buffer, cxt, coro_id);   //内部节点分裂  分裂后往新的内部节点下申请一个新的缓冲节点和叶节点 partial key没问题
+
+      // auto page_buffer1 = (dsm->get_rbuf(coro_id)).get_page_buffer();
+      // // assert(p.child_type != 0);
+      // read_node(p, type_correct, page_buffer1, p_ptr, depth,from_cache,cxt, coro_id);  //读一下原来那个page
+
+
 
       // cas fail, retry
       if (!res) {
@@ -912,7 +929,7 @@ auto internal_slot_loop_duration = std::chrono::duration_cast<std::chrono::nanos
   }
 
   // if no match slot, then find an empty slot to insert leaf directly
-  for (int i = internal_start; i < max_num; ++ i) {   
+  for (int i = internal_start; i < max_num; ++ i) {
     auto old_e = p_node->records[i];
     if (old_e == InternalEntry::Null()) {   
       auto e_ptr = GADD(p.addr(), sizeof(GlobalAddress) + i * sizeof(InternalEntry));
@@ -1527,6 +1544,12 @@ bool Tree::out_of_place_write_node(const Key &k, Value &v,const int depth_i, Glo
     rs[new_node_num + 1].is_on_chip = false;
   }
   dsm->write_batches_sync(rs,new_node_num + 2 , cxt, coro_id);
+  // auto page_buffer1 = (dsm->get_rbuf(coro_id)).get_page_buffer();
+  // // assert(p.child_type != 0);
+  // auto read_size = sizeof(GlobalAddress) + sizeof(Header) + 256 * sizeof(InternalEntry) + 1;
+  // dsm->read_sync(page_buffer1,node_addrs[0], read_size, cxt);
+
+
 
   // cas
   auto remote_cas = [=](){
@@ -2131,7 +2154,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
 
     // BufferEntry leaf_b_entry(0,getpartial(k,depth),leaf_type,leaf_addr);
     if(!update_flag) mp1[new_leaf_partial].push_back( -1);
-    bnode_addrs = new GlobalAddress[mp1.size()+1];
+    // bnode_addrs = new GlobalAddress[mp1.size()+1];
     NodeType old_page_type = num_to_node_type((int)mp1.size()-1);
     auto old_page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
     // 这里的深度貌似不对

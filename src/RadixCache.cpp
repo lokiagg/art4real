@@ -24,6 +24,7 @@ void RadixCache::clear() {
 
 void RadixCache::add_to_cache(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr) {
 assert(node_type <= 1);
+    // assert(node_addr > 99999);
 InternalPage * page = const_cast<InternalPage*>(p_node);
 v = (uint64_t)page->hdr;
   // auto depth = p_node->hdr.depth - 1;
@@ -56,6 +57,7 @@ v = (uint64_t)page->hdr;
 //怎么获取到map的地址呢？？？
 bool RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr , CacheEntry* &entry_ptr,CacheEntry**&entry_ptr_ptr ) {   //有可能加了之后马上就被失效了    加一个版本号呢？
   assert(node_type <= 1);
+    // assert(node_addr > 99999);
   InternalPage * page = const_cast<InternalPage*>(p_node);
   v = (uint64_t)page->hdr;
     int depth = p_node->hdr.depth - 1;

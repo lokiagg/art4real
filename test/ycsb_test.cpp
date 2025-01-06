@@ -175,7 +175,12 @@ void work_func(Tree *tree, const Request& r, CoroContext *ctx, int coro_id) {
 Timer bench_timer;
 std::atomic<int64_t> warmup_cnt{0};
 std::atomic_bool ready{false};
+uint64_t kKeySpace = 60 * define::MB;
 
+inline Key to_key(uint64_t k) {
+  // return int2key(CityHash64((char *)&k, sizeof(k)));
+  return int2key(CityHash64((char *)&k, sizeof(k)) % kKeySpace);
+}
 
 void thread_load(int id) {
   // use LOADER_NUM threads to load ycsb
@@ -199,7 +204,7 @@ void thread_load(int id) {
     uint64_t int_k;
 
     while (load_in >> op >> int_k) {
-      k = int2key(int_k);
+      k = to_key(int_k);
 
       assert(op == "INSERT");
       tree->insert(k,v, nullptr, 0, false, true);

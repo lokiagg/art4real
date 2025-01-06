@@ -20,7 +20,7 @@ keyType = sys.argv[2]
 CNum = sys.argv[3]
 clientPerNode = sys.argv[4]
 loader_num = '8' if len(sys.argv) == 5 else sys.argv[5]  # [CONFIG] 8
-load_ratio = '0.4' if len(sys.argv) <= 6 else sys.argv[6]
+load_ratio = '1' if len(sys.argv) <= 6 else sys.argv[6]
 trans_ratio = '1.0' if len(sys.argv) <= 7 else sys.argv[7]
 
 print(bcolors.OKGREEN + 'workload = ' + workload)
