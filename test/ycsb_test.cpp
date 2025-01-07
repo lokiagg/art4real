@@ -67,6 +67,15 @@ extern uint64_t buffer_header_split[MAX_APP_THREAD];
 extern uint64_t buffer_reconstruct[MAX_APP_THREAD];
 extern uint64_t in_place_update[MAX_APP_THREAD];
 
+extern uint64_t range_q_cnt[MAX_APP_THREAD];
+extern uint64_t range_q_time[MAX_APP_THREAD];
+extern uint64_t range_q_search_cache_time[MAX_APP_THREAD];
+extern uint64_t range_q_read_internal_n_leaf_time[MAX_APP_THREAD];
+extern uint64_t range_q_search_internal_time[MAX_APP_THREAD];
+extern uint64_t range_q_search_cache_from_time[MAX_APP_THREAD];
+extern uint64_t range_q_read_internal_time[MAX_APP_THREAD];
+extern uint64_t range_q_read_buffer_time[MAX_APP_THREAD];
+
 
 
 int kThreadCount;
@@ -584,9 +593,26 @@ int main(int argc, char *argv[]) {
         highest_depth = depth_test[i];
       }
     }
-    
+    uint64_t r_q_c = 0;
+    uint64_t r_q_t = 0;
+    uint64_t r_q_search_cache = 0;
+    uint64_t r_q_read_i_n_l = 0;
+    uint64_t r_q_search_i = 0;  //internal or buffer
+    uint64_t r_q_search_cache_from = 0;    
+    uint64_t r_q_r_i = 0;
+    uint64_t r_q_r_b = 0;
+    for(int i =0;i<MAX_APP_THREAD;i++)
+    {
+     r_q_c += range_q_cnt[i];
+     r_q_t += range_q_time[i];
+     r_q_search_cache += range_q_search_cache_time[i];
+     r_q_read_i_n_l += range_q_read_internal_n_leaf_time[i];
+     r_q_search_i += range_q_search_internal_time[i];  //internal or buffer
+     r_q_search_cache_from += range_q_search_cache_from_time[i];    
+     r_q_r_i += range_q_read_internal_time[i];
+     r_q_r_b += range_q_read_buffer_time[i];
+    }
 
-    
     tree->clear_debug_info();
 
 #ifdef EPOCH_LAT_TEST
@@ -647,6 +673,7 @@ printf("total %lu", all_retry_cnt[0]);
     if (dsm->getMyNodeID() == 0)  printf("cluster throughput %.3f Mops\n", cluster_tp / 1000.0);
     if (dsm->getMyNodeID() == 0)  printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64"\n",insert,internal_empty,internal_extend_empty,internal_header_split_cnt,buffer_empty,buffer_header_split_cnt,buffer_reconstruct_cnt,in_place_update_cnt);
     if (dsm->getMyNodeID() == 0)  printf("art depth is %d " PRIu64"\n",highest_depth);
+    if (dsm->getMyNodeID() == 0)  printf("range query cnt: %" PRIu64",avg time : %f,search cache time: %f,read node n leaf time: %f,search internal node time: %f,search cache from time: %f,read internal node time: %f,read buffer node time: %f.\n",r_q_c,r_q_t*1.0/r_q_c,r_q_search_cache*1.0/r_q_c,r_q_read_i_n_l*1.0/r_q_c,r_q_search_i*1.0,r_q_search_cache_from*1.0/r_q_c,r_q_r_i*1.0/r_q_c,r_q_r_b*1.0/r_q_c);
     for(int j=0;j<MEMORY_NODE_NUM;j++)
       {
         MN_tp[j]=MN_tps[j];

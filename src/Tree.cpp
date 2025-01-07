@@ -81,6 +81,16 @@ uint64_t search_read_leaf_time[MAX_APP_THREAD];
 uint64_t cache_ops_time[MAX_APP_THREAD];
 uint64_t buffer_loop[MAX_APP_THREAD];
 
+uint64_t range_q_cnt[MAX_APP_THREAD];
+uint64_t range_q_time[MAX_APP_THREAD];
+uint64_t range_q_search_cache_time[MAX_APP_THREAD];
+uint64_t range_q_read_internal_n_leaf_time[MAX_APP_THREAD];
+uint64_t range_q_search_internal_time[MAX_APP_THREAD];
+uint64_t range_q_search_cache_from_time[MAX_APP_THREAD];
+uint64_t range_q_read_internal_time[MAX_APP_THREAD];
+uint64_t range_q_read_buffer_time[MAX_APP_THREAD];
+
+
 int depth_test[MAX_APP_THREAD];
 
 uint64_t bufffer_from_cache_cnt[MAX_APP_THREAD];
@@ -3021,13 +3031,14 @@ void Tree::search_entries(const Key &from, const Key &to, int target_depth, std:
   InternalEntry p;
   int depth;
   bool from_cache = false;
-  volatile CacheEntry** entry_ptr_ptr = nullptr;
+  CacheEntry** entry_ptr_ptr = nullptr;
   CacheEntry* entry_ptr = nullptr;
   CacheEntry* cache_entry_parent = nullptr;
   CacheEntry** cache_entry_parent_ptr = nullptr;
   CacheEntry* cache_entry_buffer = nullptr;
   CacheEntry** cache_entry_buffer_ptr = nullptr;
   int entry_idx = -1;
+  int buffer_entry_idx = -1;
   int cache_depth = 0;
   std::vector<InternalEntry> buffer_slot;
 
@@ -3045,12 +3056,25 @@ void Tree::search_entries(const Key &from, const Key &to, int target_depth, std:
   int first_buffer = 0;
 
   // search local cache
-#ifdef TREE_ENABLE_CACHE
-  from_cache = index_cache->search_from_cache(from, entry_ptr_ptr, entry_ptr, entry_idx);
+#ifdef USE_CN_CACHE
+{
+#ifdef TEST_TIME
+  auto range_q_search_cache_from_start = std::chrono::high_resolution_clock::now();
+#endif
+
+
+  from_cache = index_cache->search_from_cache(from, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer);
+
+#ifdef TEST_TIME
+  auto range_q_search_cache_from_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_search_cache_from_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_search_cache_from_stop - range_q_search_cache_from_start);  
+  range_q_search_cache_from_time[dsm->getMyThreadID()] += range_q_search_cache_from_duration.count(); 
+#endif
+}
   if (from_cache) { // cache hit
     depth = entry_ptr->depth;
    // cache_depth = depth;
-    parent_type  = entry_ptr->node_type;
+
     if(entry_ptr->node_type == 1)   //如果cache找到的缓冲节点则直接去读吧！！！  后面如果是从cache来的 并且类型就是一个缓冲节点就不用再读一遍了 还是再读一次吧、、、
     {
       cache_entry_buffer = entry_ptr;
@@ -3060,13 +3084,13 @@ void Tree::search_entries(const Key &from, const Key &to, int target_depth, std:
       {
         p_ptr = root_ptr_ptr;
         p = get_root_ptr(cxt, coro_id);
-        parent_type = 0;
+
         depth = 1;
       }
       else{
         p_ptr = GADD(cache_entry_parent->addr,sizeof(InternalEntry)*entry_idx);
         p = cache_entry_parent->records[entry_idx];
-        parent_type = cache_entry_parent->node_type;
+
 
         cache_entry_buffer = entry_ptr;
         cache_entry_buffer_ptr = entry_ptr_ptr; 
@@ -3086,7 +3110,7 @@ void Tree::search_entries(const Key &from, const Key &to, int target_depth, std:
       cache_entry_parent_ptr = entry_ptr_ptr;
       // parent_page.hdr.depth = entry_ptr->depth;
     }
-    bp.val = p.val;
+
     if(!first_buffer) assert(cache_entry_parent !=0);  //只要是从cache拿到的一定会拿到一个父节点  不见得不见得 如果是深度为2的buffer
   }
   else {
@@ -3133,8 +3157,19 @@ read_buffer:
       auto read_buffer_start = std::chrono::high_resolution_clock::now();
 #endif
       // auto read_buffer_node_start = std::chrono::high_resolution_clock::now();
+{
+#ifdef TEST_TIME
+  auto range_q_read_buffer_start = std::chrono::high_resolution_clock::now();
+#endif  
+
       read_buffer_node(p.addr(), buffer_buffer, p_ptr, depth, buffer_from_cache_flag,cxt, coro_id);
 
+#ifdef TEST_TIME
+  auto range_q_read_buffer_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_read_buffer_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_read_buffer_stop - range_q_read_buffer_start);  
+  range_q_read_buffer_time[dsm->getMyThreadID()] += range_q_read_buffer_duration.count(); 
+#endif
+}
       // auto read_buffer_node_stop = std::chrono::high_resolution_clock::now();
       // auto read_buffer_node_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(read_buffer_node_stop - read_buffer_node_start);  
       // read_buffer_node_time[0][dsm->getMyThreadID()] += read_buffer_node_duration.count();  
@@ -3178,10 +3213,22 @@ read_buffer:
 
   // 3. Find out a node
   // 3.1 read the node
+{
+#ifdef TEST_TIME
+  auto range_q_read_internal_start = std::chrono::high_resolution_clock::now();
+#endif
+
+
   page_buffer = (dsm->get_rbuf(coro_id)).get_page_buffer();
   is_valid = read_node(p, type_correct, page_buffer, p_ptr, depth, from_cache, cxt, coro_id);
   p_node = (InternalPage *)page_buffer;
 
+#ifdef TEST_TIME
+  auto range_q_read_internal_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_read_internal_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_read_internal_stop - range_q_read_internal_start);  
+  range_q_read_internal_time[dsm->getMyThreadID()] += range_q_read_internal_duration.count(); 
+#endif
+}
   if (!is_valid) {  // node deleted || outdated cache entry in cached node
 #ifdef TREE_ENABLE_CACHE
     // invalidate the old node cache
@@ -3211,9 +3258,17 @@ read_buffer:
       goto search_finish;
     }
     if (hdr.depth + i + 1 == target_depth) {
+#ifdef TEST_TIME
+  auto range_q_search_internal_start = std::chrono::high_resolution_clock::now();
+#endif
       range_query_on_page(p_node, from_cache, depth-1,
                           p_ptr, p,
                           from, to, BORDER, BORDER, res);
+#ifdef TEST_TIME
+  auto range_q_search_internal_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_search_internal_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_search_internal_stop - range_q_search_internal_start);  
+  range_q_search_internal_time[dsm->getMyThreadID()] += range_q_search_internal_duration.count(); 
+#endif  
       goto search_finish;
     }
   }
@@ -3253,8 +3308,23 @@ void Tree::range_query(const Key &from, const Key &to, std::map<Key, Value> &ret
   thread_local std::vector<RangeCache> range_cache;
   thread_local std::set<uint64_t> tokens;
 
+  #ifdef TEST_TIME
+  range_q_cnt[dsm->getMyThreadID()] ++;
+  auto start = std::chrono::high_resolution_clock::now();
+  #endif
+
+
   assert(dsm->is_register());
-  if (to <= from) return;
+  if (to <= from)
+  
+  {
+#ifdef TEST_TIME
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);  
+  range_q_time[dsm->getMyThreadID()] += duration.count(); 
+#endif    
+    return;
+  } 
 
   range_cache.clear();
   tokens.clear();
@@ -3263,8 +3333,22 @@ void Tree::range_query(const Key &from, const Key &to, std::map<Key, Value> &ret
   int cnt;
 
   // search local cache
-#ifdef TREE_ENABLE_CACHE
+#ifdef USE_CN_CACHE
+
+{
+  #ifdef TEST_TIME
+  auto range_q_search_cache_start = std::chrono::high_resolution_clock::now();
+  #endif
+
+
   index_cache->search_range_from_cache(from, to, range_cache); //  父节点的slot也需要存下来
+
+  #ifdef TEST_TIME
+  auto range_q_search_cache_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_search_cache_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_search_cache_stop - range_q_search_cache_start);  
+  range_q_search_cache_time[dsm->getMyThreadID()] += range_q_search_cache_duration.count(); 
+  #endif
+}
   // entries in cache
   for (auto & rc : range_cache) {
     survivors.push_back(ScanContext(rc.e, rc.e_ptr, rc.depth, true, rc.entry_ptr_ptr, rc.entry_ptr,
@@ -3286,6 +3370,11 @@ void Tree::range_query(const Key &from, const Key &to, std::map<Key, Value> &ret
 next_level:
   idx  ++;
   if (survivors.empty()) {  // exit
+  #ifdef TEST_TIME
+  auto stop = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start);  
+  range_q_time[dsm->getMyThreadID()] += duration.count(); 
+#endif  
     return;
   }
   rs.clear();
@@ -3316,7 +3405,16 @@ next_level:
   // printf("cnt=%d\n", cnt);
 
   // 2. separate requests with its target node, and read them using doorbell batching for each batch
+#ifdef TEST_TIME
+  auto range_q_read_internal_n_leaf_start = std::chrono::high_resolution_clock::now();
+#endif
   dsm->read_batches_sync(rs);
+#ifdef TEST_TIME
+  auto range_q_read_internal_n_leaf_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_read_internal_n_leaf_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_read_internal_n_leaf_stop - range_q_read_internal_n_leaf_start);  
+  range_q_read_internal_n_leaf_time[dsm->getMyThreadID()] += range_q_read_internal_n_leaf_duration.count(); 
+#endif
+
 
   // 3. process the read nodes and leaves
   for (int i = 0; i < cnt; ++ i) {
@@ -3367,9 +3465,19 @@ next_level:
         survivors.push_back(si[i]);
         continue;
       }
+      
+#ifdef TEST_TIME
+  auto range_q_search_internal_start = std::chrono::high_resolution_clock::now();
+#endif
       range_query_on_page(node, si[i].from_cache, si[i].depth,
                           si[i].e_ptr, si[i].e,
                           si[i].from, si[i].to, si[i].l_state, si[i].r_state, survivors);
+#ifdef TEST_TIME
+  auto range_q_search_internal_stop = std::chrono::high_resolution_clock::now();
+  auto range_q_search_internal_duration = std::chrono::duration_cast<std::chrono::nanoseconds>(range_q_search_internal_stop - range_q_search_internal_start);  
+  range_q_search_internal_time[dsm->getMyThreadID()] += range_q_search_internal_duration.count(); 
+#endif   
+   
     }
   }
   goto next_level;
@@ -3586,5 +3694,13 @@ void Tree::clear_debug_info() {
   memset(buffer_empty_slot,0,sizeof(double)*MAX_APP_THREAD);
   memset(buffer_cnt_all,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(bufffer_from_cache_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);
-  memset(smo_bd,0,sizeof(uint64_t)*smo_bd_cnt*MAX_APP_THREAD);
+  memset(smo_bd,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_search_cache_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_read_internal_n_leaf_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_search_internal_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_search_cache_from_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_read_internal_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(range_q_read_buffer_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
 }

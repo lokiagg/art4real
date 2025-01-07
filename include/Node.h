@@ -518,14 +518,14 @@ struct ScanContext {
   GlobalAddress e_ptr;
   int depth;
   bool from_cache;
-  volatile CacheEntry** entry_ptr_ptr;
+  CacheEntry** entry_ptr_ptr;
   CacheEntry* entry_ptr;
   Key from;
   Key to;  // include
   State l_state;
   State r_state;
   ScanContext() {}
-  ScanContext(const InternalEntry& e, const GlobalAddress& e_ptr, int depth, bool from_cache, volatile CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr,
+  ScanContext(const InternalEntry& e, const GlobalAddress& e_ptr, int depth, bool from_cache,CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr,
               const Key& from, const Key& to, State l_state, State r_state) :
               e(e), e_ptr(e_ptr), depth(depth), from_cache(from_cache), entry_ptr_ptr(entry_ptr_ptr), entry_ptr(entry_ptr),
               from(from), to(to), l_state(l_state), r_state(r_state) {}
