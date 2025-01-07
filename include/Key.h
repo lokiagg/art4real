@@ -208,6 +208,9 @@ inline uint64_t key2int(const Key& key) {
 }
 
 inline Value int2value(uint64_t value) {
+#ifdef VALUE_SPACE_LIMIT
+  value = value % (kValueMax - kValueMin) + kValueMin;
+#endif
   Value res{};
   uint16_t vlen=0;
   uint64_t a=value;
@@ -216,12 +219,12 @@ inline Value int2value(uint64_t value) {
     a= a>>8;
     vlen++;
   }
-  res.at(0) = vlen;
+  // res.at(0) = vlen;
   for (int i = 1; i <=(int) vlen; ++ i) {
     auto shr = (vlen - i) * 8;
     res.at(i - 1) = ((uint64_t)shr >= 64u ? 0 : ((value >> (uint64_t)shr) & ((1 << 8) - 1))); // Is equivalent to padding zero for short key
   }
-  std::fill(res.begin() + vlen, res.end() - 1, 0);
+  std::fill(res.begin() + vlen -1, res.end() - 1, 0);
 
   return res;
 }

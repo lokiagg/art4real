@@ -31,7 +31,7 @@
 #define ALLOC_ALLIGN_BIT 8
 #define MAX_KEY_SPACE_SIZE 60000000
 // #define KEY_SPACE_LIMIT
-
+ #define VALUE_SPACE_LIMIT
 
 // Auxiliary function
 #define STRUCT_OFFSET(type, field)                                             \
@@ -106,8 +106,8 @@ constexpr int64_t kPerCoroRdmaBuf    = kPerThreadRdmaBuf / MAX_CORO_NUM;
 constexpr int kIndexCacheSize = 8192;
 
 // KV
-constexpr uint32_t maxkeyLen = 128;   
-constexpr uint32_t simulatedValLen = 128;
+constexpr uint32_t maxkeyLen = 8;   
+constexpr uint32_t simulatedValLen = 8;
 constexpr uint32_t allocAlignKVLeafSize = ROUND_UP(maxkeyLen + simulatedValLen +8 + 1 + 1 + 2 + 2 +1 +1, ALLOC_ALLIGN_BIT);   
 constexpr uint32_t allocAlignPTRLeafSize= ROUND_UP(8 + 8 + 8 + 1 + 2 + 2, ALLOC_ALLIGN_BIT);   
 constexpr uint32_t keybuffer   =1024;
