@@ -1149,6 +1149,7 @@ bool Tree::out_of_place_write_buffer_n_leaf(const Key &k, Value &v, int depth, G
     b_addr = dsm->alloc(sizeof(InternalBuffer));   
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
     Leaf_kv *leaf = new (leaf_buffer) Leaf_kv(GADD(b_addr,sizeof(GlobalAddress)),leaf_type,klen,vlen,k, v);
+    assert(leaf->front_version == leaf->rear_version); //版本一致
     if(leaf_addr == GlobalAddress::Null()) leaf_addr = dsm->alloc(sizeof(Leaf_kv));
     auto b_buffer=(dsm->get_rbuf(coro_id)).get_buffer_buffer();
    // if(p.addr().val == 0)printf("0002!\n");
@@ -1311,6 +1312,7 @@ int Tree::faa_buffer_counter_n_write_leaf(const Key &k, Value &v, int depth, Glo
 {
     auto leaf_buffer = (dsm->get_rbuf(coro_id)).get_kvleaf_buffer();
     new (leaf_buffer) Leaf_kv(e_ptr,leaf_type,klen,vlen,k, v);
+    assert(((Leaf_kv*)leaf_buffer)->front_version == ((Leaf_kv*)leaf_buffer)->rear_version); //版本一致
     if(leaf_addr == GlobalAddress::Null())    leaf_addr = dsm->alloc(sizeof(Leaf_kv));
 
     auto faa_buffer = (dsm->get_rbuf(coro_id)).get_cas_buffer();
@@ -1487,14 +1489,16 @@ bool Tree::out_of_place_write_node(const Key &k, Value &v,const int depth_i, Glo
   auto leaf_e_ptr = GADD(bnode_addr, sizeof(GlobalAddress));
  // printf("leaf buffer:  %d\n",leaf_buffer);
   if (leaf_unwrite) {  // !ONLY allocate once
-    new (leaf_buffer) Leaf_kv(leaf_e_ptr,leaf_type,klen,vlen,k, v);
     leaf_addr = dsm->alloc(sizeof(Leaf_kv));
   }
-  else {  // write the changed e_ptr inside new leaf  TODO: batch
-    auto ptr_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
-    *ptr_buffer = leaf_e_ptr;
-    dsm->write((const char *)ptr_buffer, leaf_addr, sizeof(GlobalAddress), false, cxt);
-  }
+    leaf_addr = dsm->alloc(sizeof(Leaf_kv));
+    new (leaf_buffer) Leaf_kv(leaf_e_ptr,leaf_type,klen,vlen,k, v);
+        assert(((Leaf_kv*)leaf_buffer)->front_version == ((Leaf_kv*)leaf_buffer)->rear_version); //版本一致
+  // else {  // write the changed e_ptr inside new leaf  TODO: batch
+  //   auto ptr_buffer = (dsm->get_rbuf(coro_id)).get_entry_buffer();
+  //   *ptr_buffer = leaf_e_ptr;
+  //   dsm->write((const char *)ptr_buffer, leaf_addr, sizeof(GlobalAddress), false, cxt);
+  // }
 //  printf("internal node addr:  %" PRIu64" bnode addr: %" PRIu64" leaf addr:  %" PRIu64"\n",node_addrs[0].val,bnode_addr.val,leaf_addr.val);
   // init inner nodes
   NodeType nodes_type = num_to_node_type(2);
@@ -1545,7 +1549,8 @@ bool Tree::out_of_place_write_node(const Key &k, Value &v,const int depth_i, Glo
     rs[new_node_num].size       = sizeof(InternalBuffer);
     rs[new_node_num].is_on_chip = false;
   }
-  if (leaf_unwrite) {
+  // if (leaf_unwrite) 
+  {
     rs[new_node_num + 1].source     = (uint64_t)leaf_buffer;
     rs[new_node_num + 1].dest       = leaf_addr;
     rs[new_node_num + 1].size       = sizeof(Leaf_kv);
@@ -1618,6 +1623,7 @@ bool Tree::out_of_place_write_node_from_buffer(const Key &k, Value &v,const int 
 
   if (leaf_unwrite) {  // !ONLY allocate once
     new (leaf_buffer) Leaf_kv(leaf_e_ptr,leaf_type,klen,vlen,k, v);
+            assert(((Leaf_kv*)leaf_buffer)->front_version == ((Leaf_kv*)leaf_buffer)->rear_version); //版本一致
     leaf_addr = dsm->alloc(sizeof(Leaf_kv));
   }
   else {  // write the changed e_ptr inside new leaf  TODO: batch
@@ -2051,6 +2057,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       
     }
     new (leaf_buffer) Leaf_kv(GADD(old_e.addr(),sizeof(GlobalAddress)+idx*sizeof(BufferEntry)),leaf_type,klen,vlen,k,v);
+            assert(((Leaf_kv*)leaf_buffer)->front_version == ((Leaf_kv*)leaf_buffer)->rear_version); //版本一致
     int write_num = update_flag? 1 :2;
     RdmaOpRegion *rs_write =  new RdmaOpRegion[write_num];
     memset(rs_write,0,sizeof(RdmaOpRegion)*(write_num));
@@ -2206,6 +2213,7 @@ bool Tree::out_of_place_write_buffer_node_new(const Key &k, Value &v, int depth,
       if(be == -1)
       {
         new (leaf_buffer) Leaf_kv(GADD(bnode_addrs[new_bnode_num],sizeof(GlobalAddress)+j*sizeof(BufferEntry)),leaf_type,klen,vlen,k,v);
+                assert(((Leaf_kv*)leaf_buffer)->front_version == ((Leaf_kv*)leaf_buffer)->rear_version); //版本一致
         BufferEntry leaf_b_entry(0,get_partial(k,depth),1,leaf_type,leaf_addr);
         new_bnodes[new_bnode_num]->records[j].val = leaf_b_entry.val;
       }
@@ -3694,7 +3702,7 @@ void Tree::clear_debug_info() {
   memset(buffer_empty_slot,0,sizeof(double)*MAX_APP_THREAD);
   memset(buffer_cnt_all,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(bufffer_from_cache_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);
-  memset(smo_bd,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(smo_bd,0,smo_bd_cnt*sizeof(uint64_t)*MAX_APP_THREAD);
   memset(range_q_cnt,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(range_q_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(range_q_search_cache_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
