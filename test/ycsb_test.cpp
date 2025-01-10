@@ -75,6 +75,7 @@ extern uint64_t range_q_search_internal_time[MAX_APP_THREAD];
 extern uint64_t range_q_search_cache_from_time[MAX_APP_THREAD];
 extern uint64_t range_q_read_internal_time[MAX_APP_THREAD];
 extern uint64_t range_q_read_buffer_time[MAX_APP_THREAD];
+extern uint64_t average_rs[MAX_APP_THREAD];
 
 
 
@@ -188,7 +189,8 @@ uint64_t kKeySpace = 60 * define::MB;
 
 inline Key to_key(uint64_t k) {
   // return int2key(CityHash64((char *)&k, sizeof(k)));
-  return int2key(CityHash64((char *)&k, sizeof(k)) % kKeySpace);
+  // return int2key(CityHash64((char *)&k, sizeof(k)) % kKeySpace);
+  return int2key(k);
 }
 
 void thread_load(int id) {
@@ -279,7 +281,7 @@ void thread_run(int id) {
       r.is_insert = (op == "INSERT");
       r.is_update = (op == "UPDATE");
       r.range_size = fix_range_size >= 0 ? fix_range_size : range_size;
-      r.k = int2key(int_k);
+      r.k = to_key(int_k);
       if (rm_write_conflict) {
         if (r.is_update || r.is_insert) {
           uint64_t all_thread_num = kThreadCount * dsm->getClusterSize();
@@ -601,6 +603,7 @@ int main(int argc, char *argv[]) {
     uint64_t r_q_search_cache_from = 0;    
     uint64_t r_q_r_i = 0;
     uint64_t r_q_r_b = 0;
+    uint64_t a_rs = 0;
     for(int i =0;i<MAX_APP_THREAD;i++)
     {
      r_q_c += range_q_cnt[i];
@@ -611,7 +614,9 @@ int main(int argc, char *argv[]) {
      r_q_search_cache_from += range_q_search_cache_from_time[i];    
      r_q_r_i += range_q_read_internal_time[i];
      r_q_r_b += range_q_read_buffer_time[i];
+     a_rs += average_rs[i];
     }
+    double rs_perop = (double)a_rs / r_q_c;
 
     tree->clear_debug_info();
 
@@ -674,6 +679,7 @@ printf("total %lu", all_retry_cnt[0]);
     if (dsm->getMyNodeID() == 0)  printf("insert cnt : %" PRIu64",internal empty entry : %" PRIu64",internal extend empty entry : %" PRIu64",internal header split : %" PRIu64",buffer empty entry : %" PRIu64",buffer header split : %" PRIu64",buffer reconstruct : %" PRIu64" in place update : %" PRIu64"\n",insert,internal_empty,internal_extend_empty,internal_header_split_cnt,buffer_empty,buffer_header_split_cnt,buffer_reconstruct_cnt,in_place_update_cnt);
     if (dsm->getMyNodeID() == 0)  printf("art depth is %d " PRIu64"\n",highest_depth);
     if (dsm->getMyNodeID() == 0)  printf("range query cnt: %" PRIu64",avg time : %f,search cache time: %f,read node n leaf time: %f,search internal node time: %f,search cache from time: %f,read internal node time: %f,read buffer node time: %f.\n",r_q_c,r_q_t*1.0/r_q_c,r_q_search_cache*1.0/r_q_c,r_q_read_i_n_l*1.0/r_q_c,r_q_search_i*1.0,r_q_search_cache_from*1.0/r_q_c,r_q_r_i*1.0/r_q_c,r_q_r_b*1.0/r_q_c);
+    if (dsm->getMyNodeID() == 0)  printf("average rs size per operation: %.4lf\n", rs_perop);
     for(int j=0;j<MEMORY_NODE_NUM;j++)
       {
         MN_tp[j]=MN_tps[j];

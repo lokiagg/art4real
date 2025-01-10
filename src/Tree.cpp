@@ -89,6 +89,7 @@ uint64_t range_q_search_internal_time[MAX_APP_THREAD];
 uint64_t range_q_search_cache_from_time[MAX_APP_THREAD];
 uint64_t range_q_read_internal_time[MAX_APP_THREAD];
 uint64_t range_q_read_buffer_time[MAX_APP_THREAD];
+uint64_t average_rs[MAX_APP_THREAD];
 
 
 int depth_test[MAX_APP_THREAD];
@@ -672,6 +673,8 @@ faa_counter:
         dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);
         InternalEntry old_p = p;
         p = *(InternalEntry *)entry_buffer;
+        if(p.child_type == 2)
+          depth ++;
         //把这个新的p的内容写回到父节点  
         // if(entry_idx!= -1) 
         // cache_entry_parent->records[entry_idx] = p; //  __sync_bool_compare_and_swap(&(cache_entry_parent->records[entry_idx]), old_p.val,p.val);  //新加  有可能新加的那个父节点正好是第一层的 所以不会加进去  
@@ -760,6 +763,8 @@ faa_counter:
         // dsm->read_sync((char *)entry_buffer, p_ptr, sizeof(InternalEntry), cxt);  //在这里直接重新读父节点会怎样  感觉可以直接重新读父节点 反正都要读 
         // p = *(InternalEntry *)entry_buffer;
         // }
+          if(p.child_type == 2)
+            depth ++;
           buffer_from_cache_flag =false;
           retry_flag = Buffer_Switch_type;
           from_cache = false;
@@ -3359,6 +3364,7 @@ void Tree::range_query(const Key &from, const Key &to, std::map<Key, Value> &ret
 }
   // entries in cache
   for (auto & rc : range_cache) {
+    assert(rc.e.addr() != GlobalAddress::Null());
     survivors.push_back(ScanContext(rc.e, rc.e_ptr, rc.depth, true, rc.entry_ptr_ptr, rc.entry_ptr,
                                     std::max(rc.from, from),
                                     std::min(rc.to, to - 1),
@@ -3416,6 +3422,14 @@ next_level:
 #ifdef TEST_TIME
   auto range_q_read_internal_n_leaf_start = std::chrono::high_resolution_clock::now();
 #endif
+  if(rs.size() > 1000){
+#ifdef TEST_TIME
+    range_q_cnt[dsm->getMyThreadID()] --;
+#endif
+    rs.clear();
+    return;
+  }
+  average_rs[dsm->getMyThreadID()] += rs.size();
   dsm->read_batches_sync(rs);
 #ifdef TEST_TIME
   auto range_q_read_internal_n_leaf_stop = std::chrono::high_resolution_clock::now();
@@ -3711,4 +3725,5 @@ void Tree::clear_debug_info() {
   memset(range_q_search_cache_from_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(range_q_read_internal_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
   memset(range_q_read_buffer_time,0,sizeof(uint64_t)*MAX_APP_THREAD);
+  memset(average_rs,0,sizeof(uint64_t)*MAX_APP_THREAD);
 }

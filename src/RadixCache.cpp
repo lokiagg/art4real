@@ -517,7 +517,7 @@ void RadixCache::search_range_from_cache(const Key &from, const Key &to, std::ve
   int first_buffer = 0;
   std::vector<InternalEntry> buffer_slot;
 
-  for (auto k = from; k < to; k = k + 1) {
+  for (auto k = from; k < to; ) {
     auto e = search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer); 
     if (e) {  //找到的只可能是一个内部节点的槽 也有可能是一个缓冲节点 当是一个缓冲节点的时候直接加进去
     if(entry_ptr->node_type == 1){
@@ -533,7 +533,7 @@ void RadixCache::search_range_from_cache(const Key &from, const Key &to, std::ve
         }
 
       }
-        
+      k.at(depth-1) ++;
     }
     else{
       assert(entry_idx >= 0);
@@ -543,6 +543,14 @@ void RadixCache::search_range_from_cache(const Key &from, const Key &to, std::ve
       auto leftmost = p.child_type == 0 ? k : get_leftmost(k, depth);
       auto rightmost = p.child_type == 0 ? k : get_rightmost(k, depth);
       result.push_back(RangeCache(leftmost, rightmost, p_ptr, p, depth, entry_ptr_ptr, entry_ptr));
+      k.at(depth-1) ++;
+    }
+    int tmp = k[depth-1];
+    if(tmp == 0){
+      k[depth-1] = 0;
+      if(depth == 1)
+        return;
+      k.at(depth-2) ++;
     }
     }
   }

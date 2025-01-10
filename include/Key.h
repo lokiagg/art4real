@@ -125,9 +125,10 @@ inline Key operator+(const Key& a, uint8_t b) {
   // for (int i = 0; i < (int)a.at(64); ++ i) {
   //   auto& partial = res.at(a.at(64) - 1 - i);
   int klen = define::maxkeyLen;
-  while(a.at(klen-1) !=0) klen --;
+  while(a.at(klen-1) ==0) klen --;
   for (int i = 0; i < klen; ++ i) {
     auto& partial = res.at(klen - i - 1);
+    // auto& partial = res.at(i);
     if ((int)partial + b < (1 << 8)) {
       partial += b;
       break;
@@ -146,9 +147,10 @@ inline Key operator-(const Key& a, uint8_t b) {
   // for (int i = 0; i < (int)a.at(64); ++ i) {
   //   auto& partial = res.at(a.at(64) - 1 - i);
   int klen = define::maxkeyLen;
-  while(a.at(klen-1) !=0) klen --;
+  while(a.at(klen-1) ==0) klen --;
   for (int i = 0; i < klen; ++ i) {
     auto& partial = res.at(klen - i - 1);
+    // auto& partial = res.at(i);
     if (partial >= b) {
       partial -= b;
       break;
@@ -176,6 +178,16 @@ inline Key operator-(const Key& a, uint8_t b) {
 }
 
 inline Key int2key(uint64_t key) {
+// #ifdef KEY_SPACE_LIMIT
+//   key = key % (kKeyMax - kKeyMin) + kKeyMin;
+// #endif
+//   Key res{};
+//   for (int i = 1; i <= (int)define::maxkeyLen; ++ i) {
+//     auto shr = (define::maxkeyLen - i) * 8;
+//     res.at(i - 1) = (shr >= 64u ? 0 : ((key >> shr) & ((1 << 8) - 1))); // Is equivalent to padding zero for short key
+//   }
+//   return res;
+
 #ifdef KEY_SPACE_LIMIT
   key = key % (kKeyMax - kKeyMin) + kKeyMin;
 #endif
@@ -229,7 +241,8 @@ inline Value int2value(uint64_t value) {
     auto shr = (vlen - i) * 8;
     res.at(i - 1) = ((uint64_t)shr >= 64u ? 0 : ((value >> (uint64_t)shr) & ((1 << 8) - 1))); // Is equivalent to padding zero for short key
   }
-  std::fill(res.begin() + vlen -1, res.end() - 1, 0);
+  if(vlen < define::maxkeyLen)
+  std::fill(res.begin() + vlen, res.end() - 1, 0);
 
   return res;
 }
