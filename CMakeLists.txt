@@ -6,7 +6,7 @@ project(SMART)
 
 #Compiler options
 # set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wsign-compare -g")   # -DNDEBUG
-set(CMAKE_C_FLAGS "-Wall -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wsign-compare -O3")  # -O3
+set(CMAKE_C_FLAGS "-mavx512f -mavx512bw -mavx512dq -Wall -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wsign-compare -O0 -g")  # -O3
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++17")
 
 #Link Options
@@ -14,10 +14,13 @@ set(LINKS_FLAGS "-lcityhash -lboost_system -lboost_coroutine -lpthread -libverbs
 
 #Env Options
 option (STATIC_MN_IP "Use static MNs according the IPs of the nodes" OFF)
-option (ENABLE_CACHE "Turn on the computing-side cache" ON)
+option (ENABLE_CORO "Turn on the coroutine" ON)
+option (ENABLE_CACHE "Turn on the computing-side cache" OFF)
+option (TEST_TIME "For debugging" OFF)
 option (LONG_TEST_EPOCH "Use big epoch num and long epoch duration" OFF)
 option (SHORT_TEST_EPOCH "Use small epoch num and short epoch duration" OFF)
 option (MIDDLE_TEST_EPOCH "Use middle epoch num and short epoch duration" OFF)
+option (ENABLE_AVX "Faster buffer traversal" ON)
 
 if(STATIC_MN_IP)
     add_definitions(-DSTATIC_ID_FROM_IP)
@@ -25,10 +28,22 @@ else()
     remove_definitions(-DSTATIC_ID_FROM_IP)
 endif()
 
-if(ENABLE_CACHE)
-    add_definitions(-DTREE_ENABLE_CACHE)
+if(ENABLE_CORO)
+    add_definitions(-DUSE_CORO)
 else()
-    remove_definitions(-DTREE_ENABLE_CACHE)
+    remove_definitions(-DUSE_CORO)
+endif()
+
+
+if(ENABLE_CACHE)
+    add_definitions(-DUSE_CN_CACHE)
+else()
+    remove_definitions(-DUSE_CN_CACHE)
+endif()
+if(TEST_TIME)
+    add_definitions(-DTEST_TIME)
+else()
+    remove_definitions(-DTEST_TIME)
 endif()
 
 if(LONG_TEST_EPOCH)
@@ -47,6 +62,12 @@ if(MIDDLE_TEST_EPOCH)
     add_definitions(-DMIDDLE_TEST_EPOCH)
 else()
     remove_definitions(-DMIDDLE_TEST_EPOCH)
+endif()
+
+if(ENABLE_AVX)
+    add_definitions(-DAVX_ACC)
+else()
+    remove_definitions(-DAVX_ACC)
 endif()
 
 #Tree Options (compile into SMART/baselines; these options should be set up one after one; SMART is the ART that turns on all options)

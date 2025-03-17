@@ -57,12 +57,14 @@ def main(cmd: CMDManager, tp: LogParser):
         cmd.all_execute(BUILD_PROJECT)
 
         for CN_num, client_num_per_CN in client_nums:
+            RESTART_MEMC = f"{env_cmd} && service memcached restart"
             CLEAR_MEMC = f"{env_cmd} && /bin/bash ../script/restartMemc.sh"
-            SPLIT_WORKLOADS = f"{env_cmd} && python3 {ycsb_dir}/split_workload.py {workload_name} {key_type} {CN_num} {client_num_per_CN}"
-            YCSB_TEST = f"{env_cmd} && ./ycsb_test {CN_num} {client_num_per_CN} 2 {key_type} {workload_name}"
+           # SPLIT_WORKLOADS = f"{env_cmd} && python3 {ycsb_dir}/split_workload.py {workload_name} {key_type} {CN_num} {client_num_per_CN}"
+            YCSB_TEST = f"{env_cmd} && ./zipfian_test {CN_num} 0 {client_num_per_CN} 0 2"
             KILL_PROCESS = f"{env_cmd} && killall -9 ycsb_test"
 
-            cmd.all_execute(SPLIT_WORKLOADS, CN_num)
+           # cmd.all_execute(SPLIT_WORKLOADS, CN_num)
+            cmd.all_execute(RESTART_MEMC, CN_num)
             while True:
                 try:
                     cmd.one_execute(CLEAR_MEMC)

@@ -4,6 +4,8 @@
 #include "Common.h"
 #include "GlobalAddress.h"
 #include "Key.h"
+#include <tbb/concurrent_vector.h>
+
 
 
 struct PackedGAddr {  // 48-bit, used by node addr/leaf addr (not entry addr)
@@ -16,72 +18,80 @@ struct PackedGAddr {  // 48-bit, used by node addr/leaf addr (not entry addr)
 
 static_assert(sizeof(PackedGAddr) == 6);
 
-static CRCProcessor crc_processor;
+static CRCProcessor crc_processor; //多个线程使用？但是是静态变量呀呀呀！！！  导致结果不一样？
 
 /*
   Leaf Node
 */
-class Leaf {
+class Leaf_kv {
 public:
   // for invalidation
   GlobalAddress rev_ptr;
   // TODO: add key len & value len for out-of-place updates
-
+  uint8_t front_version;
   union {
   struct {
-  uint8_t f_padding   : 7;
+  uint8_t f_padding   : 2;
+  uint8_t leaf_type   : 4;
   uint8_t valid       : 1;
   };
-  uint8_t valid_byte;
+  uint8_t type_valid_byte;
   };
+//  uint64_t checksum;  // checksum(kv)
 
-  uint64_t checksum;  // checksum(kv)
+  uint16_t keylen;
+  uint16_t valen;
 
-  // kv
   Key key;
-  union {
   Value value;
-  uint8_t _padding[define::simulatedValLen];
-  };
 
-  union {
-  struct {
-    uint8_t w_lock    : 1;
-    uint8_t r_padding : 7;
-  };
-  uint8_t lock_byte;
-  };
+    union {
+    struct {
+      uint8_t w_lock    : 1;
+      uint8_t r_padding : 7;
+    };
+    uint8_t lock_byte;
+    };
+  uint8_t rear_version;
 
 public:
-  Leaf() {}
-  Leaf(const Key& key, const Value& value, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), f_padding(0), valid(1), key(key), value(value), lock_byte(0) { set_consistent(); }
-
+  Leaf_kv() {}
+  Leaf_kv(const GlobalAddress& rev_ptr,const int& leaf_type,const int& keylen,const int& valen,const Key& key, const Value& value) : rev_ptr(rev_ptr), f_padding(0), leaf_type(leaf_type), valid(1), key(key), value(value),  lock_byte(0)
+   { 
+    set_consistent(); 
+    }
+ 
   const Key& get_key() const { return key; }
   Value get_value() const { return value; }
-  bool is_valid(const GlobalAddress& p_ptr, bool from_cache) const { return valid && (!from_cache || p_ptr == rev_ptr); }
-  bool is_consistent() const {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key) + sizeof(uint8_t) * define::simulatedValLen);
-    return crc_processor.checksum() == checksum;
+  bool is_valid(const GlobalAddress& p_ptr, bool from_cache) {
+    //  return valid && (!from_cache || p_ptr == rev_ptr);
+    return valid;
+      }
+  bool is_consistent() const 
+  {
+    if (front_version == rear_version) return true;
+    else return false;
   }
 
-  void set_value(const Value& val) { value = val; }
-  void set_consistent() {
-    crc_processor.reset();
-    crc_processor.process_bytes((char *)&key, sizeof(Key) + sizeof(uint8_t) * define::simulatedValLen);
-    checksum = crc_processor.checksum();
+  void set_consistent() 
+  {
+    front_version = 0;
+    rear_version = front_version;
   }
+  void set_value(const Value& val) { 
+    value = val;
+    front_version++;
+    rear_version = front_version; }
+
   void unlock() { w_lock = 0; };
   void lock() { w_lock = 1; };
-
+    //待处理、、、、、、
   static uint8_t get_partial(const Key& key, int depth);
   static Key get_leftmost(const Key& key, int depth);
   static Key get_rightmost(const Key& key, int depth);
   static Key remake_prefix(const Key& key, int depth, uint8_t diff_partial);
   static int longest_common_prefix(const Key &k1, const Key &k2, int depth);
-
-} __attribute__((packed));
-
+};
 
 /*
   Header
@@ -146,28 +156,94 @@ inline NodeType num_to_node_type(int num) {
 #endif
   assert(false);
 }
-
-
-class Header {
+class BufferHeader {
 public:
   union {
   struct {
-    uint8_t depth;
-    uint8_t node_type   : define::nodeTypeNumBit;
-    uint8_t partial_len : 8 - define::nodeTypeNumBit;
-    uint8_t partial[define::hPartialLenMax];
+    uint8_t depth;  //8bit
+    uint8_t partial_len  : define::partial_len; //2bit
+    uint8_t bn_padding1 : 6;  
+    uint8_t partial[define::bPartialLenMax]; //16bit
+    uint16_t count_1  ; // 8bit
+    uint8_t count_2  ; //8bit
+    uint16_t bn_padding2;  
   };
 
   uint64_t val;
   };
 
 public:
-  Header() : depth(0), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax); }
-  Header(int depth) : depth(depth), node_type(0), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax); }
-  Header(NodeType node_type) : depth(0), node_type(node_type), partial_len(0) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax); }
-  Header(const Key &k, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len) {
-    assert((uint32_t)partial_len <= define::hPartialLenMax);
+  BufferHeader() : depth(0),partial_len(0) ,count_1(0),count_2(0){ memset(partial, 0, sizeof(uint8_t) * define::bPartialLenMax); }
+  BufferHeader(int depth) : depth(depth),partial_len(0) ,count_1(0),count_2(0){ memset(partial, 0, sizeof(uint8_t) * define::bPartialLenMax); }
+  BufferHeader(const Key &k, int partial_len, int depth, int count_1,int count_2) : depth(depth),partial_len(partial_len),count_1(count_1),count_2(count_2) {
     for (int i = 0; i < partial_len; ++ i) partial[i] = get_partial(k, depth + i);
+  }
+
+  static BufferHeader split_header(const BufferHeader& old_hdr, int diff_idx) {
+  auto new_hdr = BufferHeader();
+  for (int i = diff_idx + 1; i < old_hdr.partial_len; ++ i) new_hdr.partial[i - diff_idx - 1] = old_hdr.partial[i];
+  new_hdr.partial_len = old_hdr.partial_len - diff_idx - 1;
+  new_hdr.depth = old_hdr.depth + diff_idx + 1;
+  new_hdr.count_1 = old_hdr.count_1;
+  new_hdr.count_2 = old_hdr.count_2;
+  return new_hdr;
+}
+
+  operator uint64_t() { return val; }
+
+  bool is_match(const Key& k) {
+    for (int i = 0; i < partial_len; ++ i) {
+      if (get_partial(k, depth + i) != partial[i]) return false;
+    }
+    return true;
+  }
+
+  static const uint64_t count_1_mask =(((1UL << define::nodeTypeNumBit) - 1) << 7);
+  static const uint64_t count_2_mask = (((1UL << define::count_2) - 1));
+} __attribute__((packed));
+
+
+static_assert(sizeof(BufferHeader) == 8);
+static_assert(1UL << (define::partial_len) >= define::bPartialLenMax);
+
+class Header {
+public:
+  union {
+  struct {
+    uint8_t depth : 8;
+    uint8_t node_type   : define::nodeTypeNumBit;
+    uint8_t partial_len : 8 - define::nodeTypeNumBit;
+    uint16_t count;
+    uint8_t partial[define::hPartialLenMax];
+    uint8_t empty;
+  };
+
+  uint64_t val;
+  };
+
+public:
+  Header() : depth(0), node_type(0), partial_len(0), count(256) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
+  Header(int depth) : depth(depth), node_type(0), partial_len(0), count(256) { memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);}
+  Header(NodeType node_type,Header hdr) : depth(hdr.depth), node_type(node_type), partial_len(hdr.partial_len),count(hdr.count)
+   { //memset(partial, 0, sizeof(uint8_t) * define::hPartialLenMax);
+    //  for(int i =0 ;i<partial_len;i++)
+    //  partial[i] = hdr.partial[i]; 
+    memcpy(partial,hdr.partial,sizeof(uint8_t)*partial_len);
+   }
+  Header(const Key &k, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len), count(256) {
+    for (int i = 0; i < partial_len; ++ i) partial[i] = get_partial(k, depth + i);
+
+  }
+  Header(char* partial, int partial_len, int depth, NodeType node_type) : depth(depth), node_type(node_type), partial_len(partial_len), count(256) {
+    // for (int i = 0; i < partial_len; ++ i) this->partial[i] = partial[i];
+        memcpy(this->partial,partial,sizeof(uint8_t)*partial_len);
+
+  }
+  Header(BufferHeader bhdr) : depth(bhdr.depth),node_type(static_cast<uint8_t>(NODE_256)),partial_len(bhdr.partial_len), count(256)
+  {
+    // for(int i =0;i<partial_len;i++) partial[i] = bhdr.partial[i];
+        memcpy(partial,bhdr.partial,sizeof(uint8_t)*partial_len);
+
   }
 
   operator uint64_t() { return val; }
@@ -184,13 +260,16 @@ public:
     for (int i = diff_idx + 1; i < old_hdr.partial_len; ++ i) new_hdr.partial[i - diff_idx - 1] = old_hdr.partial[i];
     new_hdr.partial_len = old_hdr.partial_len - diff_idx - 1;
     new_hdr.depth = old_hdr.depth + diff_idx + 1;
+    new_hdr.node_type = old_hdr.node_type;
+    new_hdr.count = old_hdr.count;
+    assert(new_hdr.depth !=0);
     return new_hdr;
   }
 
   NodeType type() const {
     return static_cast<NodeType>(node_type);
   }
-  static const uint64_t node_type_mask = (((1UL << define::nodeTypeNumBit) - 1) << 8);
+  static const uint64_t node_type_mask = (((1UL << define::nodeTypeNumBit) - 1) << 7);
 } __attribute__((packed));
 
 
@@ -201,27 +280,17 @@ static_assert(1UL << (8 - define::nodeTypeNumBit) >= define::hPartialLenMax);
 /*
   Internal Nodes
 */
-class InternalEntry {    // slot
+class BufferEntry {
 public:
   union {
   union {
-    // is_leaf = 0
     struct {
       uint8_t  partial;
-
-      uint8_t  empty     : define::kvLenBit - define::nodeTypeNumBit;
-      uint8_t  node_type : define::nodeTypeNumBit;
-
-      uint8_t  is_leaf   : 1;
+//      uint8_t  fp :define::fp;
+      uint8_t node_type : 2;   // 0 -> leaf  1->buffer  2->internal node
+      uint8_t  prefix_type : 1;  //1-> match
+      uint8_t  leaf_type : define::leaf_type;  //指向内部节点的时候是内部节点的节点类型
       PackedGAddr packed_addr;
-    }__attribute__((packed));
-
-    // is_leaf = 1
-    struct {
-      uint8_t  _partial;
-      uint8_t  kv_len     : define::kvLenBit;
-      uint8_t  _is_leaf   : 1;
-      PackedGAddr _packed_addr;
     }__attribute__((packed));
   };
 
@@ -229,16 +298,73 @@ public:
   };
 
 public:
-  InternalEntry() : val(0) {}
-  InternalEntry(uint8_t partial, uint8_t kv_len, const GlobalAddress &addr) :
-                _partial(partial), kv_len(kv_len), _is_leaf(1), _packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT} {}
-  InternalEntry(uint8_t partial, NodeType node_type, const GlobalAddress &addr) :
-                partial(partial), empty(0), node_type(static_cast<uint8_t>(node_type)), is_leaf(0), packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT} {}
-  InternalEntry(uint8_t partial, const InternalEntry& e) :
-                _partial(partial), kv_len(e.kv_len), _is_leaf(e._is_leaf), _packed_addr(e._packed_addr) {}
-  InternalEntry(NodeType node_type, const InternalEntry& e) :
-                partial(e.partial), empty(0), node_type(static_cast<uint8_t>(node_type)), is_leaf(e.is_leaf), packed_addr(e.packed_addr) {}
+  BufferEntry() : val(0) 
+      {
+        int v=val;
+        
+      }
+  BufferEntry(uint8_t node_type, uint8_t partial,uint8_t prefix_type,uint8_t leaf_type,const GlobalAddress &addr) :
+                partial(partial),node_type(node_type), prefix_type(prefix_type),leaf_type(leaf_type),packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT}
+                 {
+                 }
+  BufferEntry(const BufferEntry& e) :
+                partial(e.partial),node_type(e.node_type), prefix_type(e.prefix_type), leaf_type(e.leaf_type),packed_addr(e.packed_addr) 
+                {
+                }
+  BufferEntry(NodeType node_type, const BufferEntry& e) :
+                partial(e.partial),node_type(e.node_type),prefix_type(e.prefix_type),leaf_type(static_cast<uint8_t>(node_type)),packed_addr(e.packed_addr)
+                 {
+                 }
+  operator uint64_t() const { return val; }
 
+  static BufferEntry Null() {
+    static BufferEntry zero;
+    return zero;
+  }
+  NodeType type() const {
+    return static_cast<NodeType>(leaf_type);
+  }
+
+  GlobalAddress addr() const {
+    return GlobalAddress{packed_addr.mn_id, packed_addr.offset << ALLOC_ALLIGN_BIT};
+  }
+} __attribute__((packed));
+class InternalEntry {
+public:
+  union {
+  union {
+    // is_buffer = 0
+    struct {
+      uint8_t  partial;
+      uint8_t  child_type   : 2;  // 0 -> leaf  1->buffer  2->internal node
+      uint8_t  empty     : 8 - 2 - define::nodeTypeNumBit;
+      uint8_t  node_type : define::nodeTypeNumBit;
+
+      PackedGAddr packed_addr;
+    }__attribute__((packed));
+
+
+  };
+
+  uint64_t val;
+  };
+
+public:
+  InternalEntry() : val(0) {}
+  InternalEntry(uint8_t partial, uint8_t child_type,const GlobalAddress &addr) :
+                partial(partial), child_type(child_type), empty(0),node_type(0),packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT}
+                 {
+                  // assert(addr.offset >99999);
+                 }
+  InternalEntry(uint8_t partial, uint8_t child_type,NodeType node_type, const GlobalAddress &addr) :
+                partial(partial),child_type(child_type), empty(0), node_type(static_cast<uint8_t>(node_type)),  packed_addr{addr.nodeID, addr.offset >> ALLOC_ALLIGN_BIT} { }
+  InternalEntry(NodeType node_type, const InternalEntry& e) :
+                partial(e.partial),child_type(e.child_type), empty(0), node_type(static_cast<uint8_t>(node_type)),  packed_addr(e.packed_addr) { }
+  InternalEntry(uint8_t partial, const InternalEntry& e) :
+                partial(partial), child_type(e.child_type), empty(0), node_type(e.node_type),packed_addr(e.packed_addr) { }
+  InternalEntry(uint8_t partial, const BufferEntry& e) :
+                partial(partial),child_type(e.node_type),empty(0),node_type(e.leaf_type),packed_addr(e.packed_addr) { }
+  
   operator uint64_t() const { return val; }
 
   static InternalEntry Null() {
@@ -266,20 +392,99 @@ public:
   // for invalidation
   GlobalAddress rev_ptr;
 
-  Header hdr;
+
   InternalEntry records[256];
+  Header hdr;
+  uint8_t l_padding;
 
 public:
   InternalPage() { std::fill(records, records + 256, InternalEntry::Null()); }
-  InternalPage(const Key &k, int partial_len, int depth, NodeType node_type, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), hdr(k, partial_len, depth, node_type) {
+  InternalPage(const Key &k, int partial_len, int depth, NodeType node_type, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), hdr(k, partial_len, depth, node_type) ,l_padding(99){
     std::fill(records, records + 256, InternalEntry::Null());
   }
-
-  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.type() != NODE_DELETED && hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr); }
+// hdr.node_type!= NODE_DELETED
+  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr); }
 } __attribute__((packed));
 
+ 
+//static_assert(sizeof(InternalPage) == 8 + 8 + 256 * 8);
 
-static_assert(sizeof(InternalPage) == 8 + 8 + 256 * 8);
+
+/*缓冲节点  */
+
+
+
+class alignas(8) InternalBuffer {
+public:
+  // for invalidation
+  // uint64_t count_1;
+  GlobalAddress rev_ptr;
+
+
+  BufferEntry records[256];
+  BufferHeader hdr;
+  union {
+  struct {
+    uint8_t w_lock    : 1;
+    uint8_t r_padding : 7;
+  };
+
+  uint8_t lock_byte;
+  };
+
+
+public:
+  InternalBuffer() { std::fill(records, records + 256, BufferEntry::Null()); lock_byte = 0;}
+  InternalBuffer(const InternalBuffer &bnode)
+   {  rev_ptr.val = bnode.rev_ptr.val;
+      hdr.val = bnode.hdr.val;
+/**/  /*for(int i=0;i<256;i++)
+      {
+        records[i] = bnode.records[i];
+      }*/
+     memcpy(records,bnode.records,sizeof(BufferEntry)*256);
+      w_lock = bnode.w_lock;
+  
+    }
+
+  InternalBuffer(const Key &k, int partial_len, int depth, int count_1,int count_2, const GlobalAddress& rev_ptr) : rev_ptr(rev_ptr), hdr(k, partial_len, depth, count_1,count_2) ,lock_byte(0){
+    std::fill(records, records + 256, BufferEntry::Null());
+
+  }
+  InternalBuffer(int depth,std::vector<InternalEntry> records)
+  {
+    hdr.depth = depth;
+    memset(this->records,0,sizeof(this->records));
+    for(int i=0;i<(int)records.size();i++)
+    {
+      this->records[i].val = records[i].val;
+    }
+        //  memcpy(this->records,records,sizeof(BufferEntry)*256);
+    // std::memcpy(this->records, records.data(), sizeof(InternalEntry) * records.size());
+    // std::copy(records.begin(), records.end(), this->records);
+    lock_byte = 0;
+  }
+    InternalBuffer(int depth,tbb::concurrent_vector<InternalEntry> records)
+  {
+    hdr.depth = depth;
+    for(int i=0;i<(int)records.size();i++)
+    {
+      this->records[i].val = records[i].val;
+    }
+        //  memcpy(this->records,records,sizeof(BufferEntry)*256);
+    // std::copy(records.begin(), records.begin() + 256, this->records);
+    lock_byte = 0;
+  }
+
+  bool is_valid(const GlobalAddress& p_ptr, int depth, bool from_cache) const { return hdr.depth <= depth && (!from_cache || p_ptr == rev_ptr) ; }
+  void unlock() { w_lock = 0; };
+  void lock() { w_lock = 1; };
+
+}__attribute__((packed));
+
+
+//static_assert(sizeof(InternalBuffer) == 8 + 8 + 256 * 8 + 1);
+
 
 
 /*
@@ -291,6 +496,7 @@ enum State : uint8_t {
   OUTSIDE
 };
 
+
 class CacheEntry;
 
 struct RangeCache {
@@ -299,10 +505,10 @@ struct RangeCache {
   GlobalAddress e_ptr;
   InternalEntry e;
   int depth;
-  volatile CacheEntry** entry_ptr_ptr;
+  CacheEntry** entry_ptr_ptr;
   CacheEntry* entry_ptr;
   RangeCache() {}
-  RangeCache(const Key& from, const Key& to, const GlobalAddress& e_ptr, const InternalEntry& e, int depth, volatile CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) :
+  RangeCache(const Key& from, const Key& to, const GlobalAddress& e_ptr, const InternalEntry& e, int depth,CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) :
              from(from), to(to), e_ptr(e_ptr), e(e), depth(depth), entry_ptr_ptr(entry_ptr_ptr), entry_ptr(entry_ptr) {}
 };
 
@@ -312,14 +518,14 @@ struct ScanContext {
   GlobalAddress e_ptr;
   int depth;
   bool from_cache;
-  volatile CacheEntry** entry_ptr_ptr;
+  CacheEntry** entry_ptr_ptr;
   CacheEntry* entry_ptr;
   Key from;
   Key to;  // include
   State l_state;
   State r_state;
   ScanContext() {}
-  ScanContext(const InternalEntry& e, const GlobalAddress& e_ptr, int depth, bool from_cache, volatile CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr,
+  ScanContext(const InternalEntry& e, const GlobalAddress& e_ptr, int depth, bool from_cache,CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr,
               const Key& from, const Key& to, State l_state, State r_state) :
               e(e), e_ptr(e_ptr), depth(depth), from_cache(from_cache), entry_ptr_ptr(entry_ptr_ptr), entry_ptr(entry_ptr),
               from(from), to(to), l_state(l_state), r_state(r_state) {}

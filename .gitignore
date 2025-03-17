@@ -11,3 +11,7 @@ us_lat/*.lat
 tmp/
 exp/results
 *__pycache__
+*.log
+*.lat
+latencies/
+ycsb/workloads_small

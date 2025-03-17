@@ -19,13 +19,14 @@
 #define DCT_ACCESS_KEY 3185
 #define UD_PKEY 0x11111111
 #define PSN 3185
-#define NET_DEV_NAME "enp202s0f0" // [CONFIG]
+#define NET_DEV_NAME "ibs1" // [CONFIG]
 #define IB_DEV_NAME_IDX '2'       // [CONFIG]
 #define MLX_PORT 1                // [CONFIG]
 #define ON_CHIP_SIZE 128
 
-constexpr int kWriteOroMax = 24;
-constexpr int kReadOroMax = 1024;
+constexpr int kWriteOroMax =300;
+constexpr int kReadOroMax = 300;
+constexpr int kReadOroSmall = 10;
 constexpr int kQPMaxDepth = 4096;
 constexpr int kInlineDataMax = 220;
 
@@ -80,8 +81,8 @@ bool createQueuePair(ibv_qp **qp, ibv_qp_type mode, ibv_cq *cq,
 bool createQueuePair(ibv_qp **qp, ibv_qp_type mode, ibv_cq *send_cq,
                      ibv_cq *recv_cq, RdmaContext *context,
                      uint32_t qpsMaxDepth = kQPMaxDepth, uint32_t maxInlineData = kInlineDataMax);
-//修改？？？
-//bool createDCTarget(ibv_exp_dct **dct, ibv_cq *cq, RdmaContext *context,
+
+bool createDCTarget(ibv_exp_dct **dct, ibv_cq *cq, RdmaContext *context,
                     uint32_t qpsMaxDepth = kQPMaxDepth, uint32_t maxInlineData = kInlineDataMax);
 void fillAhAttr(ibv_ah_attr *attr, uint32_t remoteLid, uint8_t *remoteGid,
                 RdmaContext *context);
@@ -118,7 +119,8 @@ bool rdmaWrite(ibv_qp *qp, uint64_t source, uint64_t dest, uint64_t size,
                bool isSignaled = true, uint64_t wrID = 0);
 
 bool rdmaFetchAndAdd(ibv_qp *qp, uint64_t source, uint64_t dest, uint64_t add,
-                     uint32_t lkey, uint32_t remoteRKey);
+                     uint32_t lkey, uint32_t remoteRKey,bool singal = true,
+                         uint64_t wr_id = 0);
 bool rdmaFetchAndAddBoundary(ibv_qp *qp, uint64_t source, uint64_t dest,
                          uint64_t add, uint32_t lkey, uint32_t remoteRKey,
                          uint64_t boundary = 63, bool singal = true,
@@ -138,30 +140,30 @@ void rdmaQueryQueuePair(ibv_qp *qp);
 void checkDMSupported(struct ibv_context *ctx);
 
 
-//// specified 
-bool rdmaWriteBatch(ibv_qp *qp, RdmaOpRegion *ror, int k, bool isSignaled,    //O update ndoe
+//// specified
+bool rdmaWriteBatch(ibv_qp *qp, RdmaOpRegion *ror, int k, bool isSignaled,
                     uint64_t wrID = 0);
-bool rdmaReadBatch(ibv_qp *qp, RdmaOpRegion *ror, int k, bool isSignaled,//O  range query
+bool rdmaReadBatch(ibv_qp *qp, RdmaOpRegion *ror, int k, bool isSignaled,
                     uint64_t wrID = 0);
-bool rdmaCasRead(ibv_qp *qp, const RdmaOpRegion &cas_ror,                    //X
+bool rdmaCasRead(ibv_qp *qp, const RdmaOpRegion &cas_ror,
                  const RdmaOpRegion &read_ror, uint64_t compare, uint64_t swap,
                  bool isSignaled, uint64_t wrID = 0);
-bool rdmaReadCas(ibv_qp *qp, const RdmaOpRegion &read_ror,                   //X
+bool rdmaReadCas(ibv_qp *qp, const RdmaOpRegion &read_ror,
                  const RdmaOpRegion &cas_ror, uint64_t compare, uint64_t swap,
                  bool isSignaled, uint64_t wrID = 0);
-bool rdmaCasWrite(ibv_qp *qp, const RdmaOpRegion &cas_ror,                  //X
+bool rdmaCasWrite(ibv_qp *qp, const RdmaOpRegion &cas_ror,
                   const RdmaOpRegion &write_ror, uint64_t compare, uint64_t swap,
                   bool isSignaled, uint64_t wrID = 0);
-bool rdmaWriteFaa(ibv_qp *qp, const RdmaOpRegion &write_ror,                //X
+bool rdmaWriteFaa(ibv_qp *qp, const RdmaOpRegion &write_ror,
                   const RdmaOpRegion &faa_ror, uint64_t add_val,
                   bool isSignaled, uint64_t wrID = 0);
-bool rdmaWriteCas(ibv_qp *qp, const RdmaOpRegion &write_ror,              //X
+bool rdmaWriteCas(ibv_qp *qp, const RdmaOpRegion &write_ror,
                   const RdmaOpRegion &cas_ror, uint64_t compare, uint64_t swap,
                   bool isSignaled, uint64_t wrID = 0);
-bool rdmaWriteCasMask(ibv_qp *qp, const RdmaOpRegion &write_ror,          //O   cas lock  rdma write
+bool rdmaWriteCasMask(ibv_qp *qp, const RdmaOpRegion &write_ror,
                       const RdmaOpRegion &cas_ror, uint64_t compare, uint64_t swap, uint64_t mask,
                       bool isSignaled, uint64_t wrID = 0);
-bool rdmaTwoCasMask(ibv_qp *qp, const RdmaOpRegion &cas_ror_1, uint64_t compare_1, uint64_t swap_1, uint64_t mask_1,  //O  rdma write
+bool rdmaTwoCasMask(ibv_qp *qp, const RdmaOpRegion &cas_ror_1, uint64_t compare_1, uint64_t swap_1, uint64_t mask_1,
                     const RdmaOpRegion &cas_ror_2, uint64_t compare_2, uint64_t swap_2, uint64_t mask_2,
                     bool isSignaled, uint64_t wrID = 0);
 #endif

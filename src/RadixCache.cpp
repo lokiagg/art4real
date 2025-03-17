@@ -5,6 +5,8 @@
 #include <vector>
 #include <set>
 #include <queue>
+#include <chrono>
+uint64_t v=100;
 
 
 RadixCache::RadixCache(int cache_size, DSM *dsm) : cache_size(cache_size), dsm(dsm) {
@@ -13,16 +15,33 @@ RadixCache::RadixCache(int cache_size, DSM *dsm) : cache_size(cache_size), dsm(d
   node_queue = new tbb::concurrent_queue<CacheNode*>();
   node_queue->push(cache_root);
 }
+void RadixCache::clear() {
+  free_manager = new FreeMemManager(define::MB * cache_size);
+  cache_root = new CacheNode();
+  node_queue = new tbb::concurrent_queue<CacheNode*>();
+  node_queue->push(cache_root);
+}
 
+void RadixCache::add_to_cache(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr) {
+assert(node_type <= 1);
+    // assert(node_addr > 99999);
+InternalPage * page = const_cast<InternalPage*>(p_node);
+v = (uint64_t)page->hdr;
+  // auto depth = p_node->hdr.depth - 1;
+    int depth = p_node->hdr.depth - 1;
+    int partial_len = p_node->hdr.partial_len;
+    if(node_type == 1)
+    {
+      // depth = (((InternalBuffer*)p_node)->hdr.depth) - 1;
+      partial_len = 0 ;
+    } 
+  if (depth == 0) return;   //如果是基数树根节点指向的第一个内部节点不放在cache？
+  // assert(partial_len == 0);
+  std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
+  for (int i = 0; i < partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
 
-void RadixCache::add_to_cache(const Key& k, const InternalPage* p_node, const GlobalAddress &node_addr) {
-  auto depth = p_node->hdr.depth - 1;
-  if (depth == 0) return;
+  auto new_entry = new CacheEntry(p_node,node_type,node_addr);
 
-  std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);
-  for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);
-
-  auto new_entry = new CacheEntry(p_node, node_addr);
   _insert(byte_array, new_entry);
 #ifndef CACHE_ENABLE_ART
   free_manager->consume(sizeof(Key));  // emulate hash-based cache
@@ -30,11 +49,45 @@ void RadixCache::add_to_cache(const Key& k, const InternalPage* p_node, const Gl
   if (free_manager->remain_size() < 0) {
     _evict();
   }
+
+  //  std::cout <<" free_size=" << free_manager->remain_size() / define::MB << " MB"<<std::endl;
+  // assert(new_entry->depth <7);
   return;
 }
+//怎么获取到map的地址呢？？？
+bool RadixCache::add_to_cache_new(const Key& k, int node_type, const InternalPage* p_node, const GlobalAddress &node_addr , CacheEntry* &entry_ptr,CacheEntry**&entry_ptr_ptr ) {   //有可能加了之后马上就被失效了    加一个版本号呢？
+  assert(node_type <= 1);
+    // assert(node_addr > 99999);
+  InternalPage * page = const_cast<InternalPage*>(p_node);
+  v = (uint64_t)page->hdr;
+    int depth = p_node->hdr.depth - 1;
+    if(node_type == 1) depth = (((InternalBuffer*)p_node)->hdr.depth) - 1;
+  if (depth == 0) return false;   //如果是基数树根节点指向的第一个内部节点不放在cache？
+
+  std::vector<uint8_t> byte_array(k.begin(), k.begin() + depth);  //存到这个深度的所有字节
+    // assert(p_node->hdr.partial_len == 0);
+  for (int i = 0; i < (int)p_node->hdr.partial_len; ++ i) byte_array.push_back(p_node->hdr.partial[i]);  //再存下新的内部节点的partialkey  也就是 byte_arry里面存放由根节点到这个内部节点的所有键（包括内部节点本身的部分键）
+
+  auto new_entry = new CacheEntry(p_node,node_type,node_addr);
+  // assert(new_entry->depth <7);
+  // CacheEntry old_addr = *new_entry;
+  // assert(new_entry->depth <8);
 
 
-void RadixCache::_insert(const std::vector<uint8_t>& byte_array, CacheEntry* new_entry) {
+  int res =_insert_new(byte_array, new_entry,entry_ptr_ptr);
+#ifndef CACHE_ENABLE_ART
+  free_manager->consume(sizeof(Key));  // emulate hash-based cache
+#endif
+  if (free_manager->remain_size() < 0) {
+    _evict();
+  }
+  entry_ptr = new_entry;
+  //  std::cout <<" free_size=" << free_manager->remain_size() / define::MB << " MB"<<std::endl;
+  // if(new_entry->depth > 7) entry_ptr = 0;;  // 如果被失效了的话就不用它了 
+  return res;
+}
+
+int RadixCache::_insert(const std::vector<uint8_t>& byte_array, CacheEntry*& new_entry) {  //得找到cacheentry的地址啊
   CacheNode* parent_node = nullptr;
   CacheNode* node = cache_root;
   int idx = 0;
@@ -42,13 +95,18 @@ void RadixCache::_insert(const std::vector<uint8_t>& byte_array, CacheEntry* new
 next:
   // 1. parse header
   auto hdr = (CacheHeader *)node->header;
-  for (int i = 0; i < (int)hdr->partial.size(); ++ i) {
+  // assert(hdr->partial.size() == 0);
+  for (int i = 0; i < (int)hdr->partial.size(); ++ i) {   //要进行分裂   也是新建一个cache node
     auto cur_partial = byte_array[hdr->depth + i];
     if (hdr->depth + i == (int)byte_array.size() - 1 || cur_partial != hdr->partial[i]) {
       // split
-      auto partial_len = hdr->depth + i - idx;
+      // assert(new_entry->node_type == 0);  //只有内部节点才会进行分裂吧！ 不一定！
+      auto partial_len = hdr->depth + i - idx;   //不一样的那个部分键
       CacheNode* nested_node = nullptr;
       auto new_node = new CacheNode(byte_array, idx, partial_len, hdr->partial[i], node, cur_partial, new_entry, nested_node);
+
+      CacheEntry** slot_ptr = &(new_node->records[cur_partial].cache_entry); 
+
       auto& parent_node_entry = parent_node->records[byte_array[idx - 1]];
       auto ret_node = __sync_val_compare_and_swap(&(parent_node_entry.next), node, new_node);
       if (ret_node == node) {  // cas success
@@ -86,20 +144,24 @@ next:
       if (nested_node) node_queue->push(nested_node);
       CacheMap::const_iterator tmp = (nested_node ? nested_node->records.find(byte_array.back()) : new_node->records.find(cur_partial));
       eviction_list.push(std::make_pair(&(tmp->second.cache_entry), new_entry));
-      return;
+      return 1;
     }
   }
-  idx = hdr->depth + hdr->partial.size();
+  idx = hdr->depth + hdr->partial.size();  //和depth功能一致
 
   // 2. parse_node
   auto& cache_map = node->records;
   auto partial = byte_array[idx];
 
   // 2.1 last level
-  if (idx == (int)byte_array.size() - 1) {
+  if (idx == (int)byte_array.size() - 1) {  //new_entry下面就不用生成内部节点了吧  只需要加一个entry就好
     auto& node_entry = cache_map[partial];
     auto old_entry = (CacheEntry *)node_entry.cache_entry;
-    if (__sync_bool_compare_and_swap(&(node_entry.cache_entry), old_entry, new_entry)) {
+    
+    CacheEntry** slot_ptr = &(node_entry.cache_entry);
+
+    auto entry_ptr = __sync_val_compare_and_swap(&(node_entry.cache_entry), old_entry, new_entry);  //同一个会替换掉
+    if (entry_ptr == old_entry) {
       free_manager->consume_by_node(node);
       free_manager->consume(new_entry->content_size());
       if (old_entry) {
@@ -107,18 +169,26 @@ next:
         _safely_delete(old_entry);
       }
       eviction_list.push(std::make_pair(&(node_entry.cache_entry), new_entry));
+      // assert(new_entry->depth <7);  //有可能刚加进去就被失效了 
+      return 2;
     }
     else {
+
       delete new_entry;
+      new_entry = node_entry.cache_entry;
+      // assert(entry_ptr != 0);   因为内部节点不会失效这么频繁 但是缓冲节点可能就会很频繁的失效  因为多个线程都来读同一个缓冲节点然后变成内部节点然后失效
+      return 0;
     }
-    return;
+    // return;
   }
   // 2.2 internal level
   else {
-    auto& node_entry = cache_map[partial];
+    auto& node_entry = cache_map[partial];  //不是最后一层
     if (node_entry.next == nullptr) {
       auto next_node = new CacheNode(byte_array, idx + 1, new_entry);
       auto ret_node = __sync_val_compare_and_swap(&(node_entry.next), 0UL, next_node);
+      CacheEntry** slot_ptr = &(next_node->records[byte_array.back()].cache_entry);
+
       if (ret_node == 0UL) {  // cas success
         // record
         node_queue->push(next_node);
@@ -127,7 +197,7 @@ next:
         free_manager->consume_by_node(node);
         free_manager->consume_by_node(next_node);
         free_manager->consume(new_entry->content_size());
-        return;
+        return 3;
       }
       else {  // cas fail
         delete next_node;
@@ -137,7 +207,7 @@ next:
         goto next;
       }
     }
-    else {
+    else {  //就算父节点有next  但是要插入的节点是buffer也不应该往下找了
       parent_node = node;
       node = (CacheNode *)(node_entry.next);
       idx ++;
@@ -146,37 +216,246 @@ next:
   }
 }
 
+int RadixCache::_insert_new(const std::vector<uint8_t>& byte_array, CacheEntry*& new_entry,CacheEntry**& new_entry_ptr) {  //得找到cacheentry的地址啊
+  CacheNode* parent_node = nullptr;
+  CacheNode* node = cache_root;
+  int idx = 0;
 
-bool RadixCache::search_from_cache(const Key& k, volatile CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& entry_idx) {
-  CacheKey byte_array(k.begin(), k.begin() + define::keyLen - 1);
+next:
+  // 1. parse header
+  auto hdr = (CacheHeader *)node->header;
+  // assert(hdr->partial.size() == 0);
+  for (int i = 0; i < (int)hdr->partial.size(); ++ i) {   //要进行分裂   也是新建一个cache node
+    auto cur_partial = byte_array[hdr->depth + i];
+    if (hdr->depth + i == (int)byte_array.size() - 1 || cur_partial != hdr->partial[i]) {
+      // split
+      // assert(new_entry->node_type == 0);  //只有内部节点才会进行分裂吧！ 不一定！
+      auto partial_len = hdr->depth + i - idx;   //不一样的那个部分键
+      CacheNode* nested_node = nullptr;
+      auto new_node = new CacheNode(byte_array, idx, partial_len, hdr->partial[i], node, cur_partial, new_entry, nested_node);
+
+      CacheEntry** slot_ptr = &(new_node->records[cur_partial].cache_entry); 
+      new_entry_ptr = slot_ptr;
+      auto& parent_node_entry = parent_node->records[byte_array[idx - 1]];
+      auto ret_node = __sync_val_compare_and_swap(&(parent_node_entry.next), node, new_node);
+      if (ret_node == node) {  // cas success
+        auto new_hdr = CacheHeader::split_header(hdr, i);
+        // update header
+        auto ret_hdr = (CacheHeader *)__sync_val_compare_and_swap(&(node->header), hdr, new_hdr);
+        if (ret_hdr == hdr) _safely_delete(ret_hdr);  // cas success
+        else delete new_hdr;
+        free_manager->consume_by_node(new_node);
+        if (nested_node) free_manager->consume_by_node(nested_node);
+        free_manager->consume_by_node(node);
+        free_manager->consume(new_entry->content_size());
+      }
+      else {  // cas fail
+        if (ret_node) {
+          node = (CacheNode *)ret_node;
+          delete new_node;
+          if (nested_node) delete nested_node;
+          goto next;
+        }
+        else  {  // node is deleted
+          node = (CacheNode *)__sync_val_compare_and_swap(&(parent_node_entry.next), 0UL, new_node);
+          if (node) {
+            delete new_node;
+            if (nested_node) delete nested_node;
+            goto next;
+          }
+          free_manager->consume_by_node(new_node);
+          if (nested_node) free_manager->consume_by_node(nested_node);
+          free_manager->consume(new_entry->content_size());
+        }
+      }
+      // record
+      node_queue->push(new_node);
+      if (nested_node) node_queue->push(nested_node);
+      CacheMap::const_iterator tmp = (nested_node ? nested_node->records.find(byte_array.back()) : new_node->records.find(cur_partial));
+      eviction_list.push(std::make_pair(&(tmp->second.cache_entry), new_entry));
+      return 1;
+    }
+  }
+  idx = hdr->depth + hdr->partial.size();  //和depth功能一致
+
+  // 2. parse_node
+  auto& cache_map = node->records;
+  auto partial = byte_array[idx];
+
+  // 2.1 last level
+  if (idx == (int)byte_array.size() - 1) {  //new_entry下面就不用生成内部节点了吧  只需要加一个entry就好
+    auto& node_entry = cache_map[partial];
+    auto old_entry = (CacheEntry *)node_entry.cache_entry;
+    
+    CacheEntry** slot_ptr = &(node_entry.cache_entry);
+    new_entry_ptr = slot_ptr;
+    auto entry_ptr = __sync_val_compare_and_swap(&(node_entry.cache_entry), old_entry, new_entry);  //同一个会替换掉
+    if (entry_ptr == old_entry) {
+      free_manager->consume_by_node(node);
+      free_manager->consume(new_entry->content_size());
+      if (old_entry) {
+        free_manager->free(old_entry->content_size());
+        _safely_delete(old_entry);
+      }
+      eviction_list.push(std::make_pair(&(node_entry.cache_entry), new_entry));
+      // assert(new_entry->depth <7);  //有可能刚加进去就被失效了 
+      return 2;
+    }
+    else {
+
+      delete new_entry;
+      new_entry = node_entry.cache_entry;
+      // assert(entry_ptr != 0);   因为内部节点不会失效这么频繁 但是缓冲节点可能就会很频繁的失效  因为多个线程都来读同一个缓冲节点然后变成内部节点然后失效
+      return 0;
+    }
+    // return;
+  }
+  // 2.2 internal level
+  else {
+    auto& node_entry = cache_map[partial];  //不是最后一层
+    if (node_entry.next == nullptr) {
+      auto next_node = new CacheNode(byte_array, idx + 1, new_entry);
+      auto ret_node = __sync_val_compare_and_swap(&(node_entry.next), 0UL, next_node);
+      CacheEntry** slot_ptr = &(next_node->records[byte_array.back()].cache_entry);
+      new_entry_ptr = slot_ptr;
+      if (ret_node == 0UL) {  // cas success
+        // record
+        node_queue->push(next_node);
+        CacheMap::const_iterator tmp = next_node->records.find(byte_array.back());
+        eviction_list.push(std::make_pair(&(tmp->second.cache_entry), new_entry));
+        free_manager->consume_by_node(node);
+        free_manager->consume_by_node(next_node);
+        free_manager->consume(new_entry->content_size());
+        return 3;
+      }
+      else {  // cas fail
+        delete next_node;
+        parent_node = node;
+        node = (CacheNode *)ret_node;
+        idx ++;
+        goto next;
+      }
+    }
+    else {  //就算父节点有next  但是要插入的节点是buffer也不应该往下找了
+      parent_node = node;
+      node = (CacheNode *)(node_entry.next);
+      idx ++;
+      goto next;
+    }
+  }
+}
+
+void change_node_type(CacheEntry*& entry_ptr)
+{
+  entry_ptr ->node_type = 0;
+}
+
+
+bool RadixCache::search_from_cache(const Key& k,CacheEntry**& entry_ptr_ptr, CacheEntry*& entry_ptr, int& parent_parent_type,int& entry_idx,int& buffer_entry_idx,CacheEntry**& cache_entry_parent_ptr,CacheEntry* & cache_entry_parent,int& first_buffer) {  //当发现是一个缓冲节点直接返回内部节点？  entry_ptr_ptr是地址 entry_ptr的地址
+
+  CacheKey byte_array(k.begin(), k.begin() + define::maxkeyLen - 1);
 
   SearchRetStk ret;
   if(_search(byte_array, ret)) {
-    while(!ret.empty()) {
-      const auto& item = ret.top();
+next:    while(!ret.empty()) {
+      const auto& item = ret.top();    //已经是最接近叶节点的一个缓冲节点了    一定是一个缓冲节点？   不一定 可能失效 
+      if(item.entry_ptr == 0) return false;
       auto cache_entry = item.entry_ptr;
       auto next_partial = k.at(item.next_idx);
       if (cache_entry) {
-        for (int i = 0; i < (int)cache_entry->records.size(); ++ i) {
-          const auto& e = cache_entry->records[i];
-          if (e != InternalEntry::Null() && e.partial == next_partial) {
-            entry_ptr = cache_entry;
-            // __sync_fetch_and_add(&(entry_ptr->counter), 1UL);
-            entry_ptr_ptr = item.entry_ptr_ptr;
-            entry_idx = i;
-            return true;
+        if(cache_entry->node_type == 0)
+        {
+            for (int i = 0; i < (int)cache_entry->records.size(); ++ i) {  //一个个查看slot
+            const auto& e = cache_entry->records[i];
+            if (e != InternalEntry::Null() && e.partial == next_partial) {       //找到部分键匹配的了
+              entry_ptr = cache_entry;
+              // __sync_fetch_and_add(&(entry_ptr->counter), 1UL);
+              entry_ptr_ptr = item.entry_ptr_ptr;
+              entry_idx = i;
+              return true;
+            }
           }
+
         }
+        else{       //如果是最接近叶节点的缓冲节点直接返回该缓冲节点  或者返回多个槽？
+            entry_ptr = cache_entry;
+            entry_ptr_ptr = item.entry_ptr_ptr;
+            // for (int i = 0; i < (int)cache_entry->records.size();i ++) {    //找第一个空槽
+            //   if(cache_entry->records[i].val == 0)
+            //   {
+            //     buffer_entry_idx = i ;
+            //     break;
+            //   }
+            //   }  //一个个查看slot
+            // for (int i = cache_entry->records.size() - 1; i >=0;i --) {    //从后往前找
+            //   if(cache_entry->records[i] != InternalEntry::Null() && i < cache_entry->records.size() -1)
+            //   {
+            //     buffer_entry_idx = i ;
+            //     break;
+            //   } 
+            //   } 
+
+
+
+              //  BufferEntry e = *((BufferEntry*)&cache_entry->records[i]);
+            // if (e != BufferEntry::Null() && e.partial == next_partial) {       //找到部分键匹配的了  应该返回这个缓冲节点本身 而不是缓冲节点的槽  所以需要在上一个entry里面去找buffer对应的slot的位置  现在是buffer 上一级起码还有一个节点
+            
+              // entry_ptr = cache_entry;
+              // __sync_fetch_and_add(&(entry_ptr->counter), 1UL);
+              // entry_ptr_ptr = item.entry_ptr_ptr;
+              // entry_idx = i; //叶节点开始的位置 也可能不是一个叶节点
+               //有可能是生成第一个缓冲节点 所以不会有上一节的节点
+
+              ret.pop();
+              if(ret.empty())  //已经是最后一个节点了
+              {
+                first_buffer = 1;
+                return false;
+              }
+              else{
+              cache_entry = ret.top().entry_ptr;//获取上一级的entry  找一个这个buffer在上一级是个啥？ 
+              if(cache_entry == 0) return false;
+              parent_parent_type = cache_entry->node_type;
+              cache_entry_parent_ptr = ret.top().entry_ptr_ptr;
+              cache_entry_parent = cache_entry;
+              if(parent_parent_type == 1) //如果缓冲节点的上一层还是一个缓冲节点  那么需要把他失效了 
+              {
+                ret.pop();
+                invalidate(cache_entry_parent_ptr,cache_entry_parent);
+                invalidate(entry_ptr_ptr,entry_ptr);
+                goto next;
+              }
+              // assert(cache_entry_parent->depth!=entry_ptr->depth);
+              
+              uint8_t partial = k.at(ret.top().next_idx);
+              for (int i = 0; i < (int)cache_entry->records.size(); ++ i) {  //一个个查看slot
+                auto& e = cache_entry->records[i];
+                if (cache_entry->records[i].val != 0 && e != BufferEntry::Null()&&e != InternalEntry::Null() && e.partial == partial) {
+                entry_idx = i;   //返回这个buffer在父节点的下标
+                assert(entry_idx < cache_entry->records.size());
+                assert(cache_entry_parent->node_type == 0);
+                return true;
+                }
+              }
+              }
+              // return true;
+            // }
+          // }
+        }
+
       }
       ret.pop();
     }
   }
+
   return false;
 }
 
-bool RadixCache::_search(const CacheKey& byte_array, SearchRetStk& ret) {
+bool RadixCache::_search(const CacheKey& byte_array, SearchRetStk& ret) {  //找到缓冲节点的时候判断一下是不是叶节点 是叶节点就停止啦啦啦
   CacheNode* node = cache_root;
-  int idx = 0;
+  int idx = 0;  //和depth作用一样
+  CacheEntry* parent = nullptr;
+  bool parent_type = false;  // 是否是缓冲节点
 
 next:
   if (idx >= (int)byte_array.size()) {  // exit
@@ -194,14 +473,25 @@ next:
 
   // 2. parse_node
   auto& cache_map = node->records;
-  auto partial = byte_array[idx];
-
-  CacheMap::const_iterator r_entry = cache_map.find(partial);
+  auto partial = byte_array[idx];   //共同前缀的后一个字节 
+/*  if(parent && parent_type) //上一个entry是缓冲节点  看一下再上一层的slot中是不是叶节点 是叶节点直接返回？
+  {
+    for(int i =0;i<(int)parent->records.size();i++)
+    {
+      if(parent->records[i].partial == partial && parent->records[i].node_type == 0) return !ret.empty();
+    }
+  }
+*/
+  CacheMap::const_iterator r_entry = cache_map.find(partial);  //直接map过去的
   if (r_entry != cache_map.end()) {
     auto cache_entry = (CacheEntry *)r_entry->second.cache_entry;
+    if(cache_entry == 0) return !ret.empty();
+    parent_type = cache_entry->node_type;
     // ret.push(std::make_pair(std::make_pair(&(r_entry->second.cache_entry), cache_entry), idx + 1));
-    ret.push(SearchRet(&(r_entry->second.cache_entry), cache_entry, idx + 1));
-    node = (CacheNode *)(r_entry->second.next);
+    assert(cache_entry->depth <7 && cache_entry->node_type<2);
+    ret.push(SearchRet(&(r_entry->second.cache_entry), cache_entry, idx + 1));//存下来的是CacheEntry  相当于存下来了一整个内部节点或者缓冲节点 idx存的是
+    parent=cache_entry;
+    node = (CacheNode *)(r_entry->second.next);  //看下一层还能不能继续往下 应该是在插入函数修改的  next应该指向的是和该内部节点所指向的所有内部节点
     if (node) {
       idx ++;
       goto next;
@@ -215,38 +505,75 @@ void RadixCache::search_range_from_cache(const Key &from, const Key &to, std::ve
   GlobalAddress p_ptr;
   InternalEntry p;
   int depth;
-  volatile CacheEntry** entry_ptr_ptr = nullptr;
+  CacheEntry** entry_ptr_ptr = nullptr;
   CacheEntry* entry_ptr = nullptr;
+  CacheEntry* cache_entry_parent = nullptr;
+  CacheEntry** cache_entry_parent_ptr = nullptr;
+  CacheEntry* cache_entry_buffer = nullptr;
+  CacheEntry** cache_entry_buffer_ptr = nullptr;
+  int parent_parent_type = 0;
+  int buffer_entry_idx = -1;
   int entry_idx = -1;
+  int first_buffer = 0;
+  std::vector<InternalEntry> buffer_slot;
 
-  for (auto k = from; k < to; k = k + 1) {
-    auto e = search_from_cache(k, entry_ptr_ptr, entry_ptr, entry_idx);
-    if (e) {
+  for (auto k = from; k < to; ) {
+    auto e = search_from_cache(k, entry_ptr_ptr, entry_ptr, parent_parent_type,entry_idx,buffer_entry_idx,cache_entry_parent_ptr,cache_entry_parent,first_buffer); 
+    if (e) {  //找到的只可能是一个内部节点的槽 也有可能是一个缓冲节点 当是一个缓冲节点的时候直接加进去
+    if(entry_ptr->node_type == 1){
+      depth = entry_ptr->depth;
+      buffer_slot = entry_ptr->records;  
+      for(int i =0;i< buffer_slot.size();i++)
+      {
+        auto bp=buffer_slot[i];
+        if(bp.partial == get_partial(k,depth))
+        {
+          p_ptr = GADD(entry_ptr->addr,i*sizeof(BufferEntry));
+          result.push_back(RangeCache(k, k, p_ptr, *(InternalEntry*)&bp, depth, entry_ptr_ptr, entry_ptr));
+        }
+
+      }
+      k.at(depth-1) ++;
+    }
+    else{
       assert(entry_idx >= 0);
       p_ptr = GADD(entry_ptr->addr, sizeof(InternalEntry) * entry_idx);
       p = entry_ptr->records[entry_idx];
       depth = entry_ptr->depth;
-
-      auto leftmost = p.is_leaf ? k : get_leftmost(k, depth);
-      auto rightmost = p.is_leaf ? k : get_rightmost(k, depth);
+      auto leftmost = p.child_type == 0 ? k : get_leftmost(k, depth);
+      auto rightmost = p.child_type == 0 ? k : get_rightmost(k, depth);
       result.push_back(RangeCache(leftmost, rightmost, p_ptr, p, depth, entry_ptr_ptr, entry_ptr));
+      k.at(depth-1) ++;
+    }
+    int tmp = k[depth-1];
+    if(tmp == 0){
+      k[depth-1] = 0;
+      if(depth == 1)
+        return;
+      k.at(depth-2) ++;
+    }
     }
   }
+  
   return;
 }
 
-void RadixCache::invalidate(volatile CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) {
+void RadixCache::invalidate(CacheEntry** entry_ptr_ptr, CacheEntry* entry_ptr) {
+
   if (entry_ptr_ptr && entry_ptr && __sync_bool_compare_and_swap(entry_ptr_ptr, entry_ptr, 0UL)) {
-    free_manager->free(entry_ptr->content_size());
-    _safely_delete(entry_ptr);
-  }
+    if(entry_ptr->node_type == 0)
+    {
+      free_manager->free(entry_ptr->content_size());
+     _safely_delete(entry_ptr);
+    }
+}
 }
 
 void RadixCache::_evict() {
   bool flag;
   do {
     // _evict_one();
-    std::pair<volatile CacheEntry**, CacheEntry*> next;
+    std::pair<CacheEntry**, CacheEntry*> next;
     if(eviction_list.try_pop(next) && *next.first == next.second) {
       invalidate(next.first, next.second);
     }
@@ -392,5 +719,5 @@ void RadixCache::statistics() {
   for (const auto& e : cnt) {
     std::cout << "depth=" << e.first << " cnt=" << e.second << std::endl;
   }
-  std::cout << "cache efficiency=" << (double)(cache_size * define::MB - free_manager->remain_size()) / kp_cnt << " B" << std::endl;
+  printf("consumed cache size = %.3lf MB\n", (double)cache_size - (double)free_manager->remain_size() / define::MB);
 }

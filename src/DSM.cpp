@@ -15,7 +15,8 @@ thread_local char *DSM::rdma_buffer = nullptr;
 thread_local LocalAllocator DSM::local_allocators[MEMORY_NODE_NUM][NR_DIRECTORY];
 thread_local RdmaBuffer DSM::rbuf[MAX_CORO_NUM];
 thread_local uint64_t DSM::thread_tag = 0;
-
+thread_local RdmaOpRegion each_rs_read[MAX_CORO_NUM][MAX_MACHINE][kReadOroMax];
+thread_local RdmaOpRegion each_rs_write[MAX_CORO_NUM][MAX_MACHINE][kReadOroMax];
 
 DSM *DSM::getInstance(const DSMConfig &conf) {
   static DSM *dsm = nullptr;
@@ -143,6 +144,7 @@ void DSM::read(char *buffer, GlobalAddress gaddr, size_t size, bool signal,
              ctx->coro_id);
     (*ctx->yield)(*ctx->master);
   }
+//    printf("read size : %" PRIu64 " \n",size);
 }
 
 void DSM::read_sync(char *buffer, GlobalAddress gaddr, size_t size,
@@ -169,6 +171,7 @@ void DSM::write(const char *buffer, GlobalAddress gaddr, size_t size,
               ctx->coro_id);
     (*ctx->yield)(*ctx->master);
   }
+//  printf("write size : %" PRIu64 " \n",size);
 }
 
 void DSM::write_sync(const char *buffer, GlobalAddress gaddr, size_t size,
@@ -218,10 +221,38 @@ void DSM::read_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx) {
     pollWithCQ(iCon->cq, 1, &wc);
   }
 }
+void DSM::read_batches_new_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
+  // RdmaOpRegion each_rs[MAX_MACHINE][kReadOroMax];
+  int cnt[MAX_MACHINE];
+  memset(each_rs_read[coro_id],0,sizeof(RdmaOpRegion)*MAX_MACHINE*kReadOroMax);
 
-void DSM::read_batches_sync(const std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
+  int i = 0;
+  int k = rs.size();
+  int poll_num = 0;
+  while (i < k) {
+    std::fill(cnt, cnt + MAX_MACHINE, 0);
+    while (i < k) {
+      int node_id = GlobalAddress{rs[i].dest}.nodeID;
+      each_rs_read[coro_id][node_id][cnt[node_id] ++] = rs[i];
+      i ++;
+      if (cnt[node_id] >= kReadOroMax) break;
+    }
+    for (int j = 0; j < MAX_MACHINE; ++ j) if (cnt[j] > 0) {
+      read_batch(each_rs_read[coro_id][j], cnt[j], true, ctx);
+      poll_num ++;
+    }
+  }
+
+  if (ctx == nullptr) {
+    ibv_wc wc;
+    pollWithCQ(iCon->cq, poll_num, &wc);
+  }
+}
+
+void DSM::read_batches_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
   RdmaOpRegion each_rs[MAX_MACHINE][kReadOroMax];
   int cnt[MAX_MACHINE];
+  memset(each_rs,0,sizeof(RdmaOpRegion)*MAX_MACHINE*kReadOroMax);
 
   int i = 0;
   int k = rs.size();
@@ -233,6 +264,34 @@ void DSM::read_batches_sync(const std::vector<RdmaOpRegion>& rs, CoroContext *ct
       each_rs[node_id][cnt[node_id] ++] = rs[i];
       i ++;
       if (cnt[node_id] >= kReadOroMax) break;
+    }
+    for (int j = 0; j < MAX_MACHINE; ++ j) if (cnt[j] > 0) {
+      read_batch(each_rs[j], cnt[j], true, ctx);
+      poll_num ++;
+    }
+  }
+
+  if (ctx == nullptr) {
+    ibv_wc wc;
+    pollWithCQ(iCon->cq, poll_num, &wc);
+  }
+}
+
+void DSM::read_small_batches_sync(std::vector<RdmaOpRegion>& rs, CoroContext *ctx, int coro_id) {
+  RdmaOpRegion each_rs[MAX_MACHINE][kReadOroSmall];
+  int cnt[MAX_MACHINE];
+  memset(each_rs,0,sizeof(RdmaOpRegion)*MAX_MACHINE*kReadOroSmall);
+
+  int i = 0;
+  int k = rs.size();
+  int poll_num = 0;
+  while (i < k) {
+    std::fill(cnt, cnt + MAX_MACHINE, 0);
+    while (i < k) {
+      int node_id = GlobalAddress{rs[i].dest}.nodeID;
+      each_rs[node_id][cnt[node_id] ++] = rs[i];
+      i ++;
+      if (cnt[node_id] >= kReadOroSmall) break;
     }
     for (int j = 0; j < MAX_MACHINE; ++ j) if (cnt[j] > 0) {
       read_batch(each_rs[j], cnt[j], true, ctx);
@@ -276,17 +335,18 @@ void DSM::write_batch_sync(RdmaOpRegion *rs, int k, CoroContext *ctx) {
 void DSM::write_batches_sync(RdmaOpRegion *rs, int k, CoroContext *ctx, int coro_id) {
   // auto& each_rs = write_batches_rs[coro_id];
   // auto& cnt = write_batches_cnt[coro_id];
-  RdmaOpRegion each_rs[MAX_MACHINE][kWriteOroMax];
+  // RdmaOpRegion each_rs[MAX_MACHINE][kWriteOroMax];
   int cnt[MAX_MACHINE];
 
   std::fill(cnt, cnt + MAX_MACHINE, 0);
+  memset(each_rs_write[coro_id],0,MAX_MACHINE*kWriteOroMax*sizeof(RdmaOpRegion));
   for (int i = 0; i < k; ++ i) {
     int node_id = GlobalAddress{rs[i].dest}.nodeID;
-    each_rs[node_id][cnt[node_id] ++] = rs[i];
+    each_rs_write[coro_id][node_id][cnt[node_id] ++] = rs[i];
   }
   int poll_num = 0;
   for (int i = 0; i < MAX_MACHINE; ++ i) if (cnt[i] > 0) {
-    write_batch(each_rs[i], cnt[i], true, ctx);
+    write_batch(each_rs_write[coro_id][i], cnt[i], true, ctx);
     poll_num ++;
   }
 
@@ -618,15 +678,14 @@ void DSM::cas_mask(GlobalAddress gaddr, uint64_t equal, uint64_t val,
 
 bool DSM::cas_mask_sync(GlobalAddress gaddr, uint64_t equal, uint64_t val,
                         uint64_t *rdma_buffer, uint64_t mask, CoroContext *ctx) {
-
   cas_mask(gaddr, equal, val, rdma_buffer, mask, true, ctx);
 
   if (ctx == nullptr) {
     ibv_wc wc;
     pollWithCQ(iCon->cq, 1, &wc);
   }
-  return (equal & mask) == (*rdma_buffer & mask);
 
+  return (equal & mask) == (*rdma_buffer & mask);
 }
 
 void DSM::faa_boundary(GlobalAddress gaddr, uint64_t add_val,
@@ -792,6 +851,29 @@ void DSM::faa_dm_boundary_sync(GlobalAddress gaddr, uint64_t add_val,
                                CoroContext *ctx) {
   faa_dm_boundary(gaddr, add_val, rdma_buffer, mask, true, ctx);
   if (ctx == nullptr) {
+    ibv_wc wc;
+    pollWithCQ(iCon->cq, 1, &wc);
+  }
+}
+
+void DSM::faa(GlobalAddress gaddr,uint64_t add,uint64_t *rdma_buffer, bool signal,CoroContext *ctx)
+{
+  if(ctx == nullptr)
+  {
+            rdmaFetchAndAdd(iCon->data[0][gaddr.nodeID], (uint64_t)rdma_buffer,remoteInfo[gaddr.nodeID].dsmBase + gaddr.offset,add,
+                     iCon->cacheLKey, remoteInfo[gaddr.nodeID].dsmRKey[0],signal);
+  }
+  else{
+            rdmaFetchAndAdd(iCon->data[0][gaddr.nodeID], (uint64_t)rdma_buffer,remoteInfo[gaddr.nodeID].dsmBase + gaddr.offset,add,
+                     iCon->cacheLKey, remoteInfo[gaddr.nodeID].dsmRKey[0],true, ctx->coro_id);
+      (*ctx->yield)(*ctx->master);
+  }
+}
+
+void DSM::faa_sync(GlobalAddress gaddr,uint64_t add,uint64_t *rdma_buffer,CoroContext *ctx)
+{
+  faa(gaddr, add, rdma_buffer, true, ctx);
+    if (ctx == nullptr) {
     ibv_wc wc;
     pollWithCQ(iCon->cq, 1, &wc);
   }
